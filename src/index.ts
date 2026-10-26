@@ -70,16 +70,19 @@ export interface Config {
   assetRoot?: string
 }
 
-/** Schemastery configuration schema (fields optional unless marked required). */
-export const Config: z<Config> = z.object({
+/** Schemastery configuration schema (fields optional unless marked required).
+ *  The LLM fields are volatile: the dsh settings service only projects
+ *  namespaces with at least one volatile field, and the settings tab edits
+ *  these live without a plugin remount. */
+export const Config = z.object({
   command: z.string().min(1),
   timeoutMs: z.number().min(1000),
   maxInputBytes: z.number().min(1024),
   maxOutputBytes: z.number().min(65536),
   allowedRoot: z.string().min(1),
-  llmModel: z.string().min(1),
-  llmBaseUrl: z.string().min(1),
-  llmApiKeyEnv: z.string().min(1),
+  llmModel: z.string().min(1).volatile(),
+  llmBaseUrl: z.string().min(1).volatile(),
+  llmApiKeyEnv: z.string().min(1).volatile(),
   llmAllowUrls: z.boolean(),
   allowPlugins: z.boolean(),
   allowPrivateUrls: z.boolean(),
