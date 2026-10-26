@@ -3,8 +3,10 @@
 MarkItDown's LLM integration (describing embedded images instead of
 emitting raw data URIs) is only exposed through its Python API, so the
 plugin ships this helper and spawns it with the configured interpreter.
-The API key is read from a named environment variable here; it never
-passes through the plugin configuration or argv.
+The API key arrives in a fixed internal environment variable the plugin
+injects after resolving it from the dsh credential store; the named
+variable is only a fallback for keys the user exported themselves. The
+key never passes through the plugin configuration or argv.
 
 Usage: llm_convert.py <model> <api_key_env> <target> [--extension EXT] [--base-url URL]
 """
@@ -23,11 +25,11 @@ def main() -> int:
     parser.add_argument("--base-url", default=None, help="Optional OpenAI-compatible endpoint URL")
     args = parser.parse_args()
 
-    api_key = os.environ.get(args.api_key_env)
+    api_key = os.environ.get("DSH_MARKITDOWN_LLM_API_KEY") or os.environ.get(args.api_key_env)
     if not api_key:
         print(
-            f"dsh-markitdown: environment variable {args.api_key_env} is not set; "
-            "export it to enable LLM-assisted conversion",
+            f"dsh-markitdown: no API key in DSH_MARKITDOWN_LLM_API_KEY or {args.api_key_env}; "
+            "set it in Settings → MarkItDown or export it to enable LLM-assisted conversion",
             file=sys.stderr,
         )
         return 3

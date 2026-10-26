@@ -65,6 +65,15 @@ export interface Connection {
   readonly allowPrivateUrls: boolean
 }
 
+/**
+ * Fixed child-environment name carrying the resolved LLM key into the helper.
+ * The configured `llmApiKeyEnv` is only a fallback the helper reads (for keys
+ * the user exported); it must never become a variable name in the child
+ * environment, where a value such as `PYTHONPATH` would change the
+ * interpreter's startup.
+ */
+const LLM_HELPER_KEY_ENV = 'DSH_MARKITDOWN_LLM_API_KEY'
+
 /** Error type surfaced to the model with setup guidance attached. */
 export class MarkitdownError extends Error {
   override name = 'MarkitdownError'
@@ -586,8 +595,11 @@ export async function convertWithLlm(connection: Connection, spec: ConvertSpec):
     if ((spec.hints?.extensionHint ?? '') !== '') args.push('--extension', sanitizeHintedExtension(spec.hints?.extensionHint as string))
     // The helper reads the key from the environment; the plugin resolved it
     // from the dsh credential store, so hand it to this child only (never
-    // argv, never the plugin configuration).
-    const { stdout } = await run(connection, args, undefined, { [connection.llmApiKeyEnv]: apiKey })
+    // argv, never the plugin configuration). The variable name is fixed:
+    // `llmApiKeyEnv` is configuration-controlled, and using it as a child env
+    // name would let a config value like PYTHONPATH or PYTHONSTARTUP alter the
+    // interpreter's startup instead of just naming the key.
+    const { stdout } = await run(connection, args, undefined, { [LLM_HELPER_KEY_ENV]: apiKey })
     return stdout
   } finally {
     if (downloadedDir !== undefined) {
