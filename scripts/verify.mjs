@@ -73,7 +73,8 @@ for (const lang of ['en', 'zh']) {
   }
 }
 if (!existsSync(join(root, 'icon.svg'))) fail('icon.svg missing')
-ok.push('locale en+zh (meta shape) + icon')
+if (!existsSync(join(root, 'python', 'llm_convert.py'))) fail('python/llm_convert.py missing (LLM helper)')
+ok.push('locale en+zh (meta shape) + icon + python helper')
 
 // Exports self-resolution (package must resolve its own subpaths).
 for (const subpath of ['dsh-markitdown', 'dsh-markitdown/locale/en.json', 'dsh-markitdown/cordis.patch.yml', 'dsh-markitdown/package.json']) {

@@ -18,6 +18,11 @@
  *                 killed past it; default 8388608 (8 MiB).
  * - allowedRoot:  optional containment root: source and output paths must
  *                 resolve inside it after following symlinks.
+ * - llmModel:     enables LLM-assisted conversion (image descriptions via
+ *                 the bundled helper); requires the openai package and the
+ *                 API key in the llmApiKeyEnv environment variable.
+ * - llmApiKeyEnv: environment variable holding the LLM API key; default
+ *                 OPENAI_API_KEY.
  * - assetRoot:    override the packaged skills directory (development).
  */
 import type { Context } from '@deepseek-ai/cordis'
@@ -42,6 +47,10 @@ export interface Config {
   maxOutputBytes?: number
   /** Optional containment root for source and output paths (symlink-resolved). */
   allowedRoot?: string
+  /** Model name enabling LLM-assisted conversion (image descriptions). */
+  llmModel?: string
+  /** Environment variable holding the LLM API key; default OPENAI_API_KEY. */
+  llmApiKeyEnv?: string
   /** Absolute directory of bundled skills; defaults to the packaged assets. */
   assetRoot?: string
 }
@@ -53,6 +62,8 @@ export const Config: z<Config> = z.object({
   maxInputBytes: z.number().min(1024),
   maxOutputBytes: z.number().min(65536),
   allowedRoot: z.string().min(1),
+  llmModel: z.string().min(1),
+  llmApiKeyEnv: z.string().min(1),
   assetRoot: z.string().min(1),
 })
 
@@ -63,14 +74,26 @@ export function resolveConfig(config: Config): {
   maxInputBytes: number
   maxOutputBytes: number
   allowedRoot?: string
+  llmModel?: string
+  llmApiKeyEnv: string
   assetRoot?: string
 } {
   const command = (config.command ?? 'python').trim()
   const timeoutMs = config.timeoutMs ?? 60000
   const maxInputBytes = config.maxInputBytes ?? 52428800
   const maxOutputBytes = config.maxOutputBytes ?? 8388608
+  const llmApiKeyEnv = (config.llmApiKeyEnv ?? 'OPENAI_API_KEY').trim()
   if (command.length === 0) throw new Error('dsh-markitdown: command must not be empty')
-  return { command, timeoutMs, maxInputBytes, maxOutputBytes, allowedRoot: config.allowedRoot, assetRoot: config.assetRoot }
+  return {
+    command,
+    timeoutMs,
+    maxInputBytes,
+    maxOutputBytes,
+    allowedRoot: config.allowedRoot,
+    llmModel: config.llmModel,
+    llmApiKeyEnv,
+    assetRoot: config.assetRoot,
+  }
 }
 
 /** Activate the plugin: tools plus the bundled skill provider. */

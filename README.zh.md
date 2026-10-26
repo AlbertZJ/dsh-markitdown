@@ -9,10 +9,24 @@
 
 ## 提供的能力
 
-- **`markitdown_check`**：探测所配置的解释器，返回已安装的 MarkItDown
-  版本；未安装时给出精确的 setup 命令。
-- **`markitdown_convert`**：把一个受支持的文件转成 Markdown，内联返回
-  文本，或写入你指定的 `output` 文件。
+- **`markitdown_check`**：探测所配置的解释器，返回已装的 MarkItDown
+  版本（配置了 LLM 模式时一并报告 helper 就绪状态）；未安装时给出精确的
+  setup 命令。
+- **`markitdown_convert`**：把单个来源或批量来源转成 Markdown：
+  - `path`：单个绝对本地路径**或 http(s) URL**（如 YouTube 链接，需已装
+    `[all]` extra）；
+  - `paths`：最多 16 个路径/URL 的批量，单个失败不影响其他来源；
+  - `stdinBase64`：以 canonical base64 字节走 MarkItDown stdin（必须给
+    `extensionHint`/`mimeHint`）；
+  - 提示参数对应 CLI：`extensionHint`（-x，也可放行进白名单外的本地扩展名）、
+    `mimeHint`（-m）、`charsetHint`（-c）、`keepDataUris`、
+    `usePlugins`（第三方 MarkItDown converter 插件）；
+  - `output` 把单来源结果写文件，`outputDir` 按来源写 `<名称>.md`；
+    默认内联返回 Markdown。
+- **LLM 辅助转换**（配置 `llmModel`）：Office 文档内嵌图片由
+  OpenAI 兼容的 LLM 生成描述文字，而不是输出 data URI。内置
+  `python/llm_convert.py` helper；需要 `openai` 包与
+  `llmApiKeyEnv`（默认 `OPENAI_API_KEY`）环境变量里的 API key。
 - **`markitdown` 技能**：打包工作流（环境检查 → 转换 → 汇报注意事项），
   含各格式预期与已知限制。
 
@@ -53,6 +67,10 @@ github:AlbertZJ/dsh-markitdown
     # 可选：把所有读写限制在一个工作区内。路径会跟随符号链接解析，
     # 必须落在该根目录之下。
     # allowedRoot: D:/work/documents
+    # 可选：LLM 辅助转换（内嵌图片由 LLM 描述）。需要 `pip install openai`
+    # 并在环境变量里导出 key。
+    # llmModel: gpt-4o
+    # llmApiKeyEnv: OPENAI_API_KEY
 ```
 
 ## 验证

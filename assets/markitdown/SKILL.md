@@ -1,11 +1,11 @@
 ---
 name: markitdown
-description: Convert PDF, Office, HTML, image, audio and other files to Markdown with the dsh-markitdown plugin (Microsoft MarkItDown). Use when the user asks to extract text or tables from a document, convert a file to Markdown, or make an attachment readable.
+description: Convert PDF, Office, HTML, image, audio and other files, URLs, or stdin streams to Markdown with the dsh-markitdown plugin (Microsoft MarkItDown). Use when the user asks to extract text or tables from a document, convert a file or YouTube link to Markdown, or make an attachment readable.
 ---
 
 # MarkItDown document conversion
 
-Convert files to Markdown through the plugin's `markitdown_check` and
+Convert sources to Markdown through the plugin's `markitdown_check` and
 `markitdown_convert` tools. MarkItDown runs as a Python package
 (`python -m markitdown`) in the plugin's configured interpreter; the tools
 own the process, timeout and error handling.
@@ -17,35 +17,66 @@ own the process, timeout and error handling.
    - `ready: false` → the detail field contains the exact setup command
      (`<command> -m pip install 'markitdown[all]'`). Show it to the user and
      stop; do not retry conversions until they confirm setup.
-2. **Convert** with `markitdown_convert`:
-   - Pass the absolute `path` of the source file.
-   - Omit `output` to get the Markdown text inline — right for summaries,
-     extraction questions and documents under ~100 KiB.
-   - Pass absolute `output` (e.g. `<source>.md`) to write the result to a
-     file — right for large documents, batch jobs and when the user asks
-     for a converted file on disk.
-3. **Report** what was converted, where the Markdown went, and any caveats
+2. **Convert** with `markitdown_convert`. Pick the mode:
+   - `path`: one absolute local file path or an http(s) URL (e.g. a YouTube
+     link, when the `[all]` extra is installed).
+   - `paths`: a batch (up to 16) of paths/URLs; per-source failures are
+     captured in `results` and do not abort the batch.
+   - `stdinBase64`: canonical base64 bytes; requires `extensionHint` or
+     `mimeHint` so MarkItDown can pick a converter.
+3. **Where the Markdown goes**:
+   - Omit `output`/`outputDir` to get Markdown inline — right for summaries
+     and sources under ~100 KiB.
+   - `output` (single source) or `outputDir` (writes `<name>.md` per source)
+     — right for large documents, batch jobs and when the user asks for
+     converted files on disk.
+4. **Report** what was converted, where the Markdown went, and any caveats
    below that apply to the source format.
 
-## Supported inputs
+## Hints and flags
+
+`extensionHint` / `mimeHint` / `charsetHint` map to the MarkItDown CLI's
+`-x` / `-m` / `-c` flags. `extensionHint` also admits local files whose
+extension is not in the built-in supported list, and is required for stdin.
+`keepDataUris` keeps base64 image payloads (by default they are truncated);
+`usePlugins` enables third-party MarkItDown converter plugins installed in
+the Python environment.
+
+## LLM-assisted conversion
+
+When the plugin config sets `llmModel`, conversions run through the bundled
+helper with an OpenAI-compatible client: embedded images in Office documents
+are described by the LLM instead of emitted as raw data URIs. Requirements:
+
+- the `openai` package in the same Python environment
+  (`<command> -m pip install openai`),
+- the API key exported in the `llmApiKeyEnv` environment variable
+  (default `OPENAI_API_KEY`),
+- awareness that image descriptions cost LLM tokens and add latency.
+
+`markitdown_check` reports whether the helper is ready. Without `llmModel`,
+conversion stays fully offline and images appear as (truncated) data URIs.
+
+## Supported local inputs
 
 PDF, DOCX/DOC, PPTX/PPT, XLSX/XLS/CSV (tables become Markdown tables),
 JSON/XML, HTML/HTM, EPUB, MD, Outlook MSG, ZIP (each contained file
 converted in place), JPG/JPEG/PNG/GIF/TIFF/BMP (EXIF metadata, OCR text
 when available), WAV/MP3 (speech transcription, needs the `[all]` extra).
 
-Anything else (e.g. `.exe`, `.sqlite`): refuse conversion and say the format
-is not supported instead of guessing.
+Anything else: refuse conversion and say the format is not supported,
+unless the user provides an `extensionHint` that MarkItDown understands.
 
 ## Rules
 
 - Always run `markitdown_check` before the first conversion in a session;
   a green check earlier in the conversation counts.
-- Paths must be absolute and the file must exist; errors say which failed.
-- Files above the configured size limit are rejected — suggest writing
-  nothing and asking the user to split or shrink the file.
-- Batch jobs: loop `markitdown_convert` one file at a time; do not parallelise
-  (the converter process is the bottleneck and runs sequentially anyway).
+- Local paths must be absolute and the file must exist; URLs must start
+  with http(s)://. Errors say which check failed.
+- Files above the configured size limit are rejected — suggest splitting
+  or shrinking the file.
+- Batch jobs run sequentially inside the tool; never fire several
+  `markitdown_convert` calls in parallel for the same batch.
 - Do not install Python packages yourself unless the user explicitly asks;
   surface the setup command from `markitdown_check` and let them decide.
 
@@ -54,7 +85,8 @@ is not supported instead of guessing.
 - Scanned PDFs without a text layer convert to little or no text; say so
   instead of presenting an empty result as success.
 - Complex layouts (multi-column, heavy styling) flatten into linear Markdown.
-- Audio transcription quality depends on the `[all]` extra and its model
-  downloads; check `markitdown_check` output when transcription matters.
-- DOCX embedded images come back as data URIs and can be large; prefer the
-  `output` file for those.
+- YouTube transcription depends on the `[all]` extra and current page
+  structure; failures surface the MarkItDown error — report it, do not retry
+  in a loop.
+- DOCX embedded images come back as data URIs (or LLM descriptions in LLM
+  mode) and can be large; prefer `output`/`outputDir` for those.

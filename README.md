@@ -10,13 +10,27 @@ model-facing tools — no MCP, no bundled binaries. The plugin drives the
 ## What you get
 
 - **`markitdown_check`** — probes the configured interpreter and reports the
-  installed MarkItDown version, or the exact setup command when it is missing.
-- **`markitdown_convert`** — converts one supported file to Markdown and
-  returns the text inline, or writes it to a file you name (`output`).
+  installed MarkItDown version (plus LLM-helper readiness when configured),
+  or the exact setup command when something is missing.
+- **`markitdown_convert`** — converts one source or a batch to Markdown:
+  - `path`: one absolute local file path **or an http(s) URL** (e.g. a
+    YouTube link with the `[all]` extra installed);
+  - `paths`: batch of up to 16 paths/URLs, per-source failures captured;
+  - `stdinBase64`: canonical base64 bytes via MarkItDown stdin (requires
+    `extensionHint`/`mimeHint`);
+  - hints map to the CLI: `extensionHint` (-x, also admits unlisted local
+    extensions), `mimeHint` (-m), `charsetHint` (-c), `keepDataUris`,
+    `usePlugins` (third-party MarkItDown converter plugins);
+  - `output` writes the single-source result to a file, `outputDir` writes
+    `<name>.md` per source; otherwise Markdown comes back inline.
+- **LLM-assisted conversion** (config `llmModel`): embedded images in Office
+  documents are described by an OpenAI-compatible LLM instead of emitted as
+  data URIs. Ships the `python/llm_convert.py` helper; requires the `openai`
+  package and the API key in `llmApiKeyEnv` (default `OPENAI_API_KEY`).
 - **`markitdown` skill** — bundled workflow (environment check → convert →
   report caveats) with per-format expectations and known limitations.
 
-Supported inputs: PDF, DOCX/DOC, PPTX/PPT, XLSX/XLS, CSV, JSON, XML,
+Supported local inputs: PDF, DOCX/DOC, PPTX/PPT, XLSX/XLS, CSV, JSON, XML,
 HTML/HTM, EPUB, MD, Outlook MSG, ZIP (contained files converted in place),
 JPG/JPEG/PNG/GIF/TIFF/BMP (EXIF, OCR when available), WAV/MP3 (transcription,
 needs the `[all]` extra).
@@ -54,6 +68,10 @@ package.
     # Optional: keep all reads and writes inside one workspace. Paths are
     # resolved with symlinks followed and must stay under this root.
     # allowedRoot: D:/work/documents
+    # Optional: LLM-assisted conversion (LLM-described embedded images).
+    # Requires `pip install openai` and the key exported in the env var.
+    # llmModel: gpt-4o
+    # llmApiKeyEnv: OPENAI_API_KEY
 ```
 
 ## Verify
