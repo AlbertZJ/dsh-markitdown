@@ -33,13 +33,14 @@
  */
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
+import type {} from './credentials-contract.js'
 import { registerSkills } from './skills.js'
 import { registerTools } from './tools.js'
 
 /** Cordis plugin identity. */
 export const name = 'dsh-markitdown'
 /** Registries this plugin needs. */
-export const inject = ['tools', 'skills']
+export const inject = ['tools', 'skills', 'credentials']
 
 /** Plugin configuration; every field is optional in the patch. */
 export interface Config {
@@ -55,7 +56,9 @@ export interface Config {
   allowedRoot?: string
   /** Model name enabling LLM-assisted conversion (image descriptions). */
   llmModel?: string
-  /** Environment variable holding the LLM API key; default OPENAI_API_KEY. */
+  /** OpenAI-compatible endpoint for LLM mode (e.g. https://api.deepseek.com/v1); empty = provider default. */
+  llmBaseUrl?: string
+  /** Credential reference (environment variable name) holding the LLM API key; default OPENAI_API_KEY. The dsh credential store takes precedence over the process environment. */
   llmApiKeyEnv?: string
   /** Allow URL sources in LLM mode; default false (internal content must not leave the host). */
   llmAllowUrls?: boolean
@@ -75,6 +78,7 @@ export const Config: z<Config> = z.object({
   maxOutputBytes: z.number().min(65536),
   allowedRoot: z.string().min(1),
   llmModel: z.string().min(1),
+  llmBaseUrl: z.string().min(1),
   llmApiKeyEnv: z.string().min(1),
   llmAllowUrls: z.boolean(),
   allowPlugins: z.boolean(),
@@ -90,6 +94,7 @@ export function resolveConfig(config: Config): {
   maxOutputBytes: number
   allowedRoot?: string
   llmModel?: string
+  llmBaseUrl?: string
   llmApiKeyEnv: string
   llmAllowUrls: boolean
   allowPlugins: boolean
@@ -109,6 +114,7 @@ export function resolveConfig(config: Config): {
     maxOutputBytes,
     allowedRoot: config.allowedRoot,
     llmModel: config.llmModel,
+    llmBaseUrl: config.llmBaseUrl,
     llmApiKeyEnv,
     llmAllowUrls: config.llmAllowUrls ?? false,
     allowPlugins: config.allowPlugins ?? false,
@@ -120,6 +126,12 @@ export function resolveConfig(config: Config): {
 /** Activate the plugin: tools plus the bundled skill provider. */
 export function apply(ctx: Context, config: Config = {}): void {
   const resolved = resolveConfig(config)
-  registerTools(ctx, resolved)
+  // Per-call resolution (never cached): the dsh credential store first, then
+  // ambient fallbacks such as the process environment. A key set in
+  // Settings → Plugins → MarkItDown reaches the next conversion without a
+  // restart.
+  const resolveApiKey = async (): Promise<string | undefined> =>
+    (await ctx.credentials.resolve(resolved.llmApiKeyEnv))?.value
+  registerTools(ctx, { ...resolved, resolveApiKey })
   registerSkills(ctx, 'dsh-markitdown', resolved.assetRoot)
 }

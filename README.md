@@ -29,7 +29,11 @@ model-facing tools — no MCP, no bundled binaries. The plugin drives the
 - **LLM-assisted conversion** (config `llmModel`): embedded images in Office
   documents are described by an OpenAI-compatible LLM instead of emitted as
   data URIs. Ships the `python/llm_convert.py` helper; requires the `openai`
-  package and the API key in `llmApiKeyEnv` (default `OPENAI_API_KEY`).
+  package and an API key from the dsh credential store — configured in
+  **Settings → Plugins → MarkItDown** (provider preset, endpoint, model, and
+  the key itself), with the `llmApiKeyEnv` environment variable as a
+  fallback. Any OpenAI-compatible provider works (OpenAI, DeepSeek, or a
+  custom `llmBaseUrl`).
 - **`markitdown` skill** — bundled workflow (environment check → convert →
   report caveats) with per-format expectations and known limitations.
 
@@ -72,8 +76,11 @@ package.
     # resolved with symlinks followed and must stay under this root.
     # allowedRoot: D:/work/documents
     # Optional: LLM-assisted conversion (LLM-described embedded images).
-    # Requires `pip install openai` and the key exported in the env var.
+    # Requires `pip install openai`. The key is read from the dsh credential
+    # store (Settings → Plugins → MarkItDown) or the env var below.
+    # Any OpenAI-compatible provider works:
     # llmModel: gpt-4o
+    # llmBaseUrl: https://api.deepseek.com/v1
     # llmApiKeyEnv: OPENAI_API_KEY
     # Allow URL sources in LLM mode (default off: internal content must not
     # leave the host through the LLM API).

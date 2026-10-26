@@ -26,8 +26,11 @@
   - `output` 把单来源结果写文件，`outputDir` 按来源写 `<名称>.md`；
     默认内联返回 Markdown。
 - **LLM 辅助转换**（配置 `llmModel`）：Office 文档内嵌图片由
-  OpenAI 兼容的 LLM 生成描述文字，而不是输出 data URI。内置
-  `python/llm_convert.py` helper；需要 `openai` 包与
+  OpenAI 兼容的 LLM 生成描述文字，而不是输出 data URI。API 密钥与模型在
+  **设置 → 插件 → MarkItDown** 里配置（提供商预设、端点、模型、密钥本身，
+  密钥存入 dsh 凭证存储而非配置文件），也兼容 `llmApiKeyEnv` 环境变量。
+  任何 OpenAI 兼容提供商都可用（OpenAI、DeepSeek 或自定义 `llmBaseUrl`）。
+  内置 `python/llm_convert.py` helper；需要 `openai` 包与
   `llmApiKeyEnv`（默认 `OPENAI_API_KEY`）环境变量里的 API key。
 - **`markitdown` 技能**：打包工作流（环境检查 → 转换 → 汇报注意事项），
   含各格式预期与已知限制。

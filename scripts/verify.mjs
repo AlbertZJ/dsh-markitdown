@@ -18,9 +18,24 @@ if (!pkg.engines?.dsh) fail('engines.dsh missing')
 if (!pkg.dsh?.bundle?.patch) fail('dsh.bundle.patch missing')
 ok.push(`engines.dsh ${pkg.engines.dsh}`)
 
-const requiredExports = ['.', './cordis.patch.yml', './package.json', './locale/en.json', './locale/zh.json']
+const requiredExports = ['.', './client', './cordis.patch.yml', './package.json', './locale/en.json', './locale/zh.json']
 for (const key of requiredExports) if (!(key in (pkg.exports ?? {}))) fail(`exports missing ${key}`)
 ok.push(`exports ${requiredExports.length} keys`)
+
+// Client half: the browser bundle the dsh module loader executes.
+const client = pkg.dsh?.client
+if (client?.platform !== 'web') fail('dsh.client.platform must be web')
+for (const dep of ['@deepseek-ai/dsh-client-locale', '@deepseek-ai/dsh-client-ui-settings', '@deepseek-ai/dsh-client-ui-renderer', '@deepseek-ai/dsh-api-remotes']) {
+  if (!(client?.inject ?? []).includes(dep)) fail(`dsh.client.inject missing ${dep}`)
+}
+const clientBundle = read('lib/client.js')
+// Whitespace-normalized check: the minifier may split the footer across lines.
+const flattened = clientBundle.replace(/\s+/gu, ' ')
+for (const token of ['window.__ModuleLoader__.load', 'factory: (require)', 'return module.exports; } });', 'settings.plugins.tab']) {
+  if (!flattened.includes(token.replace(/\s+/gu, ' '))) fail(`lib/client.js missing ${token}`)
+}
+if (/require\((['"])@deepseek-ai\//u.test(clientBundle)) fail('lib/client.js must not require @deepseek-ai/* at runtime (module table provides them)')
+ok.push('client bundle (module-loader shape, settings.plugins.tab)')
 
 for (const dep of ['@deepseek-ai/cordis', '@deepseek-ai/dsh-tools', '@deepseek-ai/dsh-skill', '@deepseek-ai/schemastery']) {
   if (!(dep in (pkg.peerDependencies ?? {}))) fail(`peerDependencies missing ${dep}`)
@@ -53,7 +68,9 @@ if (!read('src/skills.ts').includes('../assets/')) fail('src/skills.ts must defa
 ok.push(`skills ${skills.length}: ${skills.join(', ')}`)
 
 // Built lib: every src entry produced a .js, and index keeps the plugin contract.
-const srcEntries = readdirSync(join(root, 'src')).filter(name => name.endsWith('.ts'))
+// Type-only contract modules (no runtime emit) are excluded.
+const typeOnly = new Set(['credentials-contract.ts'])
+const srcEntries = readdirSync(join(root, 'src')).filter(name => name.endsWith('.ts') && !typeOnly.has(name))
 const libDir = join(root, 'lib')
 for (const entry of srcEntries) {
   const built = join(libDir, entry.replace(/\.ts$/u, '.js'))

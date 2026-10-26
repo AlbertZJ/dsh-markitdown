@@ -40,8 +40,19 @@ export interface Connection {
   readonly maxOutputBytes: number
   /** Optional model name enabling LLM-assisted conversion (image descriptions). */
   readonly llmModel?: string
+  /**
+   * Optional OpenAI-compatible endpoint for LLM mode (provider base URL).
+   * Undefined uses the provider default.
+   */
+  readonly llmBaseUrl?: string
   /** Environment variable holding the LLM API key; default OPENAI_API_KEY. */
   readonly llmApiKeyEnv: string
+  /**
+   * Resolve the LLM API key at call time (never cached): the dsh credential
+   * store first, then ambient fallbacks such as the process environment. The
+   * ref name is `llmApiKeyEnv`.
+   */
+  readonly resolveApiKey: () => Promise<string | undefined>
   /**
    * LLM mode never accepts URL sources unless this is true: an internal
    * document fetched from a URL would leave the host through the LLM API.
@@ -542,13 +553,14 @@ export async function convertWithLlm(connection: Connection, spec: ConvertSpec):
         throw new MarkitdownError(`dsh-markitdown: cannot read "${source}" (file missing or not readable)`)
       }
     }
-    const apiKey = process.env[connection.llmApiKeyEnv]?.trim()
+    const apiKey = (await connection.resolveApiKey())?.trim()
     if (apiKey === undefined || apiKey === '') {
       throw new MarkitdownError(
-        `dsh-markitdown: environment variable ${connection.llmApiKeyEnv} is not set. Export it (or pick another name via llmApiKeyEnv) to enable LLM-assisted conversion.`,
+        `dsh-markitdown: no API key behind "${connection.llmApiKeyEnv}" (credential store or environment). Set it in Settings → Plugins → MarkItDown, or export the environment variable.`,
       )
     }
     const args = [llmHelperPath(), connection.llmModel, connection.llmApiKeyEnv, effectiveSource]
+    if (connection.llmBaseUrl !== undefined && connection.llmBaseUrl !== '') args.push('--base-url', connection.llmBaseUrl)
     if ((spec.hints?.extensionHint ?? '') !== '') args.push('--extension', sanitizeHintedExtension(spec.hints?.extensionHint as string))
     const { stdout } = await run(connection, args)
     return stdout
@@ -597,9 +609,12 @@ export async function checkEnvironment(connection: Connection): Promise<{ comman
     const version = probe.stdout.trim()
     let detail = `markitdown ${version} is available under "${connection.command}".`
     if (connection.llmModel !== undefined) {
+      const keyReady = ((await connection.resolveApiKey())?.trim() ?? '') !== ''
       try {
         await run(connection, ['-c', 'import openai'])
-        detail += ` LLM-assisted conversion is configured (model ${connection.llmModel}, API key from ${connection.llmApiKeyEnv}).`
+        detail += keyReady
+          ? ` LLM-assisted conversion is configured (model ${connection.llmModel}, API key resolved from "${connection.llmApiKeyEnv}").`
+          : ` LLM-assisted conversion is configured (model ${connection.llmModel}) but no API key is set behind "${connection.llmApiKeyEnv}" — add one in Settings → Plugins → MarkItDown or export the environment variable.`
       } catch {
         detail += ` LLM-assisted conversion is configured (model ${connection.llmModel}) but the openai package is missing — run: ${connection.command} -m pip install openai`
       }

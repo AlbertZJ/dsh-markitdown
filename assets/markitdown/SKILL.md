@@ -66,9 +66,14 @@ are described by the LLM instead of emitted as raw data URIs. Requirements:
 
 - the `openai` package in the same Python environment
   (`<command> -m pip install openai`),
-- the API key exported in the `llmApiKeyEnv` environment variable
-  (default `OPENAI_API_KEY`),
+- the API key stored in the dsh credential store — Settings → Plugins →
+  MarkItDown (provider preset, endpoint, model, key) — or exported in the
+  `llmApiKeyEnv` environment variable (default `OPENAI_API_KEY`) as a
+  fallback,
 - awareness that image descriptions cost LLM tokens and add latency.
+
+Any OpenAI-compatible provider works: pick the DeepSeek preset or set a
+custom endpoint (`llmBaseUrl`) plus its model name.
 
 `markitdown_check` reports whether the helper is ready. Without `llmModel`,
 conversion stays fully offline and images appear as (truncated) data URIs.
