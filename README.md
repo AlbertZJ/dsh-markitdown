@@ -50,6 +50,10 @@ package.
     command: python
     timeoutMs: 60000        # per-conversion deadline
     maxInputBytes: 52428800 # 50 MiB source limit
+    maxOutputBytes: 8388608 # 8 MiB captured-output cap (process is killed past it)
+    # Optional: keep all reads and writes inside one workspace. Paths are
+    # resolved with symlinks followed and must stay under this root.
+    # allowedRoot: D:/work/documents
 ```
 
 ## Verify

@@ -7,10 +7,11 @@
  * - `markitdown_convert` converts one supported file to Markdown and returns
  *   the text (or writes it next to the source when `output` is given).
  */
-import { writeFile } from 'node:fs/promises'
+import { mkdir, writeFile } from 'node:fs/promises'
+import { dirname, isAbsolute } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { checkEnvironment, convertFile, SUPPORTED_FORMATS, type Connection } from './runner.js'
+import { assertInsideRoot, checkEnvironment, convertFile, MarkitdownError, SUPPORTED_FORMATS, type Connection } from './runner.js'
 
 /** Register the two conversion tools. */
 export function registerTools(ctx: Context, connection: Connection): void {
@@ -71,6 +72,11 @@ export function registerTools(ctx: Context, connection: Connection): void {
     execute: async (args: { path: string; output?: string }) => {
       const markdown = await convertFile(connection, args.path)
       if (args.output !== undefined && args.output !== '') {
+        if (!isAbsolute(args.output)) {
+          throw new MarkitdownError(`dsh-markitdown: output path must be absolute, got "${args.output}"`)
+        }
+        if (connection.allowedRoot !== undefined) await assertInsideRoot(connection.allowedRoot, args.output, 'output')
+        await mkdir(dirname(args.output), { recursive: true })
         await writeFile(args.output, markdown, 'utf8')
         return { path: args.path, output: args.output }
       }

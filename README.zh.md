@@ -49,6 +49,10 @@ github:AlbertZJ/dsh-markitdown
     command: python
     timeoutMs: 60000        # 单次转换超时
     maxInputBytes: 52428800 # 源文件 50 MiB 上限
+    maxOutputBytes: 8388608 # 捕获输出 8 MiB 上限（超出即杀进程）
+    # 可选：把所有读写限制在一个工作区内。路径会跟随符号链接解析，
+    # 必须落在该根目录之下。
+    # allowedRoot: D:/work/documents
 ```
 
 ## 验证
