@@ -21,8 +21,15 @@ const clientBundle = defineConfig({
   sourcemap: false,
   clean: false,
   deps: {
-    neverBundle: (specifier: string) => specifier.startsWith('@deepseek-ai/'),
-    alwaysBundle: (specifier: string) => !specifier.startsWith('@deepseek-ai/'),
+    // React comes from the platform module table: bundling our own copy would
+    // hand the renderer a second React whose hook dispatcher is null, so
+    // every hook in the page would throw. Only plain libraries stay inline.
+    neverBundle: (specifier: string) =>
+      specifier.startsWith('@deepseek-ai/') || specifier === 'react' || specifier === 'react-dom'
+      || specifier.startsWith('react/') || specifier.startsWith('react-dom/'),
+    alwaysBundle: (specifier: string) =>
+      !specifier.startsWith('@deepseek-ai/') && specifier !== 'react' && specifier !== 'react-dom'
+      && !specifier.startsWith('react/') && !specifier.startsWith('react-dom/'),
   },
   define: {
     'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'production'),
