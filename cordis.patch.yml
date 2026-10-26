@@ -1,0 +1,10 @@
+# dsh-markitdown bundle patch.
+#
+# 一行宿主插件：注册 markitdown 转换工具（调 Microsoft MarkItDown 的
+# Python CLI，把 PDF/Office/HTML/图片/音频等转成 Markdown），并提供一个
+# 打包技能目录（转换工作流与排障）。
+# 配置全部有默认值：command 为 Python 解释器（`python -m markitdown`）。
+
+- insert:
+    - id: markitdown
+      name: 'dsh-markitdown'

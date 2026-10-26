@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "MarkItDown conversion",
+    "description": "Convert PDF, Office, HTML, images, audio and more to Markdown via the MarkItDown tools. Needs the Python markitdown package under the configured interpreter."
+  }
+}

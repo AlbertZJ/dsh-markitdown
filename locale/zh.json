@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "MarkItDown 转换",
+    "description": "通过 MarkItDown 工具把 PDF、Office、HTML、图片、音频等转成 Markdown。需要所配置 Python 解释器里已安装 markitdown 包。"
+  }
+}
