@@ -38,7 +38,11 @@ model-facing tools — no MCP, no bundled binaries. The plugin drives the
   0.1.x never sends Word images to the LLM: the helper unpacks `word/media` in
   document order, describes each image once, and replaces the data-URI
   placeholders in place, so one `markitdown_convert` call also returns the text
-  read out of the screenshots.
+  read out of the screenshots. Descriptions run at `temperature=0`, must
+  transcribe verbatim, mark unreadable text and undeterminable senders instead
+  of guessing, and name the source part for later inspection. This remains a
+  one-shot description: when exact wording matters, look at the original image
+  rather than trusting the description.
 - **`markitdown` skill** — bundled workflow (environment check → convert →
   report caveats) with per-format expectations and known limitations.
 

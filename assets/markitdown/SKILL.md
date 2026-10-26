@@ -77,8 +77,13 @@ custom endpoint plus its model name.
 DOCX needs special handling: markitdown 0.1.x never routes Word images
 through its LLM client, so the helper unpacks `word/media` in document
 order, describes each image once, and replaces the data-URI placeholders
-in place (`> **图 N**` blocks). Large images (> 8 MiB) are skipped, and a
-failed description is reported inline instead of aborting the document.
+in place (`> **图 N**` blocks). Descriptions run at temperature 0 and must
+transcribe text verbatim, mark unreadable text and undeterminable senders
+instead of guessing, and name the source part (`word/media/...`) so the
+original can be inspected. Large images (> 8 MiB) are skipped, and a failed
+description is reported inline instead of aborting the document. This is
+still one-shot description: when exact wording matters, ask for the original
+image (or use the session's own image reading) instead of trusting it.
 
 `markitdown_check` reports whether the helper is ready. Without `llmModel`,
 conversion stays fully offline and images appear as (truncated) data URIs.

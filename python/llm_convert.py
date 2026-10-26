@@ -43,10 +43,17 @@ MAX_RELS_BYTES = 4 * 1024 * 1024
 IMAGE_WORKERS = 4
 
 IMAGE_PROMPT = (
-    "Describe this image for a Markdown conversion of a document. "
-    "First transcribe ALL visible text verbatim, keeping its original language and line breaks. "
-    "Then describe the layout, UI elements, charts, tables or screenshots briefly. "
-    "Do not invent content that is not in the image. Answer in the image's main language."
+    "You are extracting evidence from one image embedded in a document.\n"
+    "1. Transcribe every visible text exactly as written, preserving line breaks and punctuation. "
+    "Write [unreadable] for text you cannot read; never guess it.\n"
+    "2. Do not infer or add anything that is not visible. Do not name apps, platforms, companies, "
+    "people, or dates unless the image text states them; never write 'likely', 'probably', or a guess.\n"
+    "3. For chat or message screenshots, attribute each message only from what is visible "
+    "(bubble side, avatar, sender label). If the sender is not determinable, write "
+    "'sender unclear' instead of picking one.\n"
+    "4. Reproduce tables as Markdown tables.\n"
+    "5. End with one line 'layout:' summarizing the layout.\n"
+    "6. Answer in the main language of the image text."
 )
 
 
@@ -107,6 +114,9 @@ def describe_images(client, model, order, blobs):
         try:
             response = client.chat.completions.create(
                 model=model,
+                # Deterministic decoding: the same image must yield the same
+                # description across runs (and across the plugin's retries).
+                temperature=0,
                 messages=[{
                     "role": "user",
                     "content": [
@@ -128,10 +138,13 @@ def describe_images(client, model, order, blobs):
     return descriptions
 
 
-def render_image(index, description):
+def render_image(index, description, member=None):
+    # Name the source part so the reader can unpack the DOCX and inspect the
+    # original image when a description looks wrong.
+    source = ("（%s）" % member) if member else ""
     lines = description.splitlines() or [""]
     body = "\n".join(("> " + line) if line else ">" for line in lines)
-    return "> **图 %d**\n%s" % (index, body)
+    return "> **图 %d**%s\n%s" % (index, source, body)
 
 
 def merge_docx_images(markdown, order, descriptions):
@@ -146,7 +159,7 @@ def merge_docx_images(markdown, order, descriptions):
         description = descriptions.get(order[index - 1])
         if description is None:
             return match.group(0)
-        return render_image(index, description)
+        return render_image(index, description, order[index - 1])
 
     merged = IMAGE_MARKER.sub(replace, markdown)
     # More images in the document than placeholders in the Markdown: keep the
@@ -155,7 +168,7 @@ def merge_docx_images(markdown, order, descriptions):
     for index in range(counter["n"] + 1, len(order) + 1):
         description = descriptions.get(order[index - 1])
         if description is not None:
-            extra.append(render_image(index, description))
+            extra.append(render_image(index, description, order[index - 1]))
     if extra:
         merged = merged.rstrip() + "\n\n" + "\n\n".join(extra)
     return merged

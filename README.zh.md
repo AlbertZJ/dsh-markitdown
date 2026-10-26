@@ -33,7 +33,10 @@
   `python/llm_convert.py` helper，需要 `openai` 包。
   DOCX 单独处理：markitdown 0.1.x 的 Word 转换器从不把内嵌图片交给 LLM，
   所以 helper 会按文档顺序解包 `word/media`、每张图描述一次，并原位替换
-  data URI 占位符——一次 `markitdown_convert` 就能拿到截图里的文字。
+  data URI 占位符——一次 `markitdown_convert` 就能拿到截图里的文字。描述
+  使用 `temperature=0`，要求逐字转录、看不清标 `[unreadable]`、发送者不确定
+  时明说而不猜，并标注原图成员名以便核对。注意这仍是单次盲描述：措辞精确
+  要求高时，应改看原图（会话自带图片读取）而不是依赖描述。
 - **`markitdown` 技能**：打包工作流（环境检查 → 转换 → 汇报注意事项），
   含各格式预期与已知限制。
 
