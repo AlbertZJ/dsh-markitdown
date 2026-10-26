@@ -191,7 +191,13 @@ async function run(connection: Connection, args: readonly string[], input?: Uint
   return await new Promise((resolvePromise, rejectPromise) => {
     let child
     try {
-      child = spawn(connection.command, args, { stdio: [input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'] })
+      child = spawn(connection.command, args, {
+        stdio: [input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
+        // Python writes to a pipe in the locale code page (cp936 on Chinese
+        // Windows) while the plugin decodes UTF-8, which turns every non-ASCII
+        // character into mojibake; force UTF-8 for the child's stdio.
+        env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' },
+      })
     } catch (error) {
       rejectPromise(new MarkitdownError(`dsh-markitdown: failed to start "${connection.command}": ${(error as Error).message}\n\n${setupGuidance(connection.command)}`))
       return
@@ -235,6 +241,15 @@ async function run(connection: Connection, args: readonly string[], input?: Uint
       if (killed) return
       if (code === 0) {
         resolvePromise({ stdout, stderr })
+        return
+      }
+      // Windows exit code 9009 means "program not found": the configured
+      // interpreter is missing, or PATH resolves to the Microsoft Store
+      // `python` alias stub, which exits without running anything.
+      if (code === 9009) {
+        rejectPromise(new MarkitdownError(
+          `dsh-markitdown: cannot run "${connection.command}" (exit code 9009 — the interpreter was not found or is a Microsoft Store alias stub).\n\n${setupGuidance(connection.command)}`,
+        ))
         return
       }
       const detail = stderr.trim().split(/\r?\n/u).slice(-5).join('\n')
