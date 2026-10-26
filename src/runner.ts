@@ -12,9 +12,12 @@
  * variable — the key never enters the plugin configuration.
  */
 import { spawn } from 'node:child_process'
-import { lookup } from 'node:dns/promises'
-import { realpath, stat } from 'node:fs/promises'
+import { lookup } from 'node:dns'
+import { realpath, stat, mkdtemp, writeFile, rm } from 'node:fs/promises'
+import { request as httpRequest, IncomingMessage } from 'node:http'
+import { request as httpsRequest } from 'node:https'
 import { isAbsolute, join, normalize, sep } from 'node:path'
+import { tmpdir } from 'node:os'
 import { Buffer } from 'node:buffer'
 import { fileURLToPath } from 'node:url'
 
@@ -262,53 +265,88 @@ function ipv4ToNumber(address: string): number | undefined {
   return value
 }
 
-/** True when an IP address is not globally routable (SSRF target). */
+/**
+ * True when an IP address is not globally routable (SSRF target).
+ * IPv4-mapped/compatible IPv6 (::ffff:a.b.c.d, ::a.b.c.d) delegates to the
+ * embedded IPv4 quad so mapped loopback/link-local cannot slip through.
+ */
+/** True when the host is a numeric IPv4 or IPv6 literal (not a DNS name). */
+function isIpLiteral(hostname: string): boolean {
+  return /^(\d{1,3}\.){3}\d{1,3}$/u.test(hostname) || hostname.includes(':')
+}
+
 function isNonPublicAddress(address: string): boolean {
   if (address.includes(':')) {
-    const compressed = address.toLowerCase().replace(/^\[[^\]]*\]$/u, '')
+    const compressed = address.toLowerCase().replace(/^\[/u, '').replace(/\]$/u, '')
+    const mapped = /^::(?:ffff:)?(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/u.exec(compressed)
+    if (mapped !== null) return isNonPublicAddress(mapped[1] as string)
     if (compressed === '::' || compressed === '::1') return true
     if (/^fe[89ab]/u.test(compressed)) return true // link-local fe80::/10
     if (compressed.startsWith('fc') || compressed.startsWith('fd')) return true // unique-local fc00::/7
+    if (compressed.startsWith('fec')) return true // site-local fec0::/10 (deprecated)
+    if (compressed.startsWith('2002:')) return true // 6to4 2002::/16 (embeds IPv4)
+    if (compressed.startsWith('2001:')) return true // Teredo/benchmark 2001::/32
+    if (/^64:ff9b:/u.test(compressed)) return true // NAT64 well-known 64:ff9b::/96
     return false
   }
   const value = ipv4ToNumber(address)
   if (value === undefined) return true // unparseable: refuse
-  if (value === 0) return true // 0.0.0.0/8 unspecified
-  if (value >>> 24 === 127) return true // loopback
+  if (value >>> 24 === 0) return true // 0.0.0.0/8 unspecified + current network
   if (value >>> 24 === 10) return true // RFC1918
+  if (value >>> 24 === 127) return true // loopback
   if ((value >>> 20) === 0xAC1) return true // 172.16.0.0/12 (0xAC1 = 172.16 >> 4)
   if ((value >>> 16) === 0xC0A8) return true // 192.168.0.0/16
   if ((value >>> 16) === 0xA9FE) return true // 169.254.0.0/16 link-local
+  if ((value >>> 22) === (0x64400000 >>> 22)) return true // 100.64.0.0/10 CGNAT
+  if ((value >>> 17) === (0xC6120000 >>> 17)) return true // 198.18.0.0/15 benchmark
+  if ((value >>> 24) === 192 && ((value >>> 16) & 0xff) === 0) return true // 192.0.0.0/24 special (incl. NAT64 discovery)
+  if ((value >>> 24) === 198 && ((value >>> 16) & 0xff) === 51) return true // 198.51.100.0/24 TEST-NET-2
+  if ((value >>> 24) === 203 && ((value >>> 16) & 0xff) === 13) return true // 203.0.113.0/24 TEST-NET-3
   return false
-}
-
-/** Resolve every address for one host and refuse non-public targets. */
-async function assertHostPublic(hostname: string): Promise<void> {
-  let addresses: readonly { address: string }[]
-  try {
-    addresses = await lookup(hostname, { all: true })
-  } catch {
-    throw new MarkitdownError(`dsh-markitdown: cannot resolve URL host "${hostname}"`)
-  }
-  for (const { address } of addresses) {
-    if (isNonPublicAddress(address)) {
-      throw new MarkitdownError(
-        `dsh-markitdown: URL host "${hostname}" resolves to non-public address ${address}; set allowPrivateUrls to permit internal targets`,
-      )
-    }
-  }
 }
 
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308])
 const MAX_REDIRECT_HOPS = 5
 
 /**
- * Egress policy for URL sources (SSRF guard): the initial host and every
- * redirect hop must resolve to globally routable addresses, and redirect
- * targets must stay on http(s). No-op when allowPrivateUrls is set.
+ * Connection-level DNS guard (SSRF / rebinding defence): a custom `lookup`
+ * that returns only globally routable addresses. Every connection made by
+ * {@link fetchUrlPinned} resolves through this hook, so the address that is
+ * validated is the address that is connected to — no check-then-use gap.
+ * When allowPrivateUrls is set the stock resolver is used instead.
  */
-export async function assertUrlEgress(connection: Connection, rawUrl: string): Promise<void> {
-  if (connection.allowPrivateUrls) return
+function pinnedLookup(connection: Connection) {
+  if (connection.allowPrivateUrls) return undefined
+  return (
+    hostname: string,
+    _options: unknown,
+    callback: (error: NodeJS.ErrnoException | null, address?: string, family?: number) => void,
+  ): void => {
+    lookup(hostname, { all: true }, (error, addresses) => {
+      if (error !== null) {
+        callback(error as NodeJS.ErrnoException)
+        return
+      }
+      const chosen = addresses.find(candidate => !isNonPublicAddress(candidate.address))
+      if (chosen === undefined) {
+        const refusal = new Error(`refused to connect to non-public address for host "${hostname}"`) as NodeJS.ErrnoException
+        refusal.code = 'EPERM'
+        callback(refusal)
+        return
+      }
+      callback(null, chosen.address, chosen.family)
+    })
+  }
+}
+
+/**
+ * Download one URL with pinned egress validation: every redirect hop is
+ * followed manually, each connection resolves only to public addresses, the
+ * scheme must stay http(s), credentials in the URL are rejected, and the
+ * accumulated body is capped at maxInputBytes. Fails closed: a transport
+ * error refuses the conversion instead of approving it silently.
+ */
+export async function fetchUrlPinned(connection: Connection, rawUrl: string): Promise<{ bytes: Uint8Array; finalUrl: string }> {
   let current = new URL(rawUrl)
   for (let hop = 0; hop <= MAX_REDIRECT_HOPS; hop += 1) {
     if (current.username !== '' || current.password !== '') {
@@ -317,25 +355,95 @@ export async function assertUrlEgress(connection: Connection, rawUrl: string): P
     if (!/^https?:$/iu.test(current.protocol)) {
       throw new MarkitdownError(`dsh-markitdown: URL scheme ${current.protocol} is not allowed`)
     }
-    await assertHostPublic(current.hostname)
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), Math.min(connection.timeoutMs, 10_000))
-    let response: Response | undefined
-    try {
-      response = await fetch(current, { method: 'GET', redirect: 'manual', signal: controller.signal }).catch(() => undefined)
-    } finally {
-      clearTimeout(timer)
+    // IP-literal hosts never reach the lookup hook (Node connects directly),
+    // so they are validated here instead of inside pinnedLookup.
+    if (!connection.allowPrivateUrls && isIpLiteral(current.hostname) && isNonPublicAddress(current.hostname)) {
+      throw new MarkitdownError(
+        `dsh-markitdown: URL host "${current.hostname}" is a non-public address; set allowPrivateUrls to permit internal targets`,
+      )
     }
-    const location = response?.headers.get('location')
-    if (response === undefined || !REDIRECT_STATUSES.has(response.status) || location === null) {
-      await response?.body?.cancel().catch(() => {})
-      return
+    const transport = current.protocol === 'https:' ? httpsRequest : httpRequest
+    const response = await new Promise<IncomingMessage>((resolvePromise, rejectPromise) => {
+      const request = transport(current, { method: 'GET', lookup: pinnedLookup(connection) } as never, (message) => {
+        resolvePromise(message)
+      })
+      request.setTimeout(Math.min(connection.timeoutMs, 15_000), () => {
+        request.destroy(new Error('egress probe timed out'))
+      })
+      request.on('error', error => {
+        rejectPromise(new MarkitdownError(`dsh-markitdown: cannot verify URL egress for ${current.href}: ${error.message}`))
+      })
+      request.end()
+    })
+    const location = response.headers.location
+    if (!REDIRECT_STATUSES.has(response.statusCode ?? 0) || typeof location !== 'string' || location === '') {
+      const chunks: Buffer[] = []
+      let received = 0
+      const body = await new Promise<Buffer>((resolvePromise, rejectPromise) => {
+        response.on('data', (chunk: Buffer) => {
+          received += chunk.byteLength
+          if (received > connection.maxInputBytes) {
+            rejectPromise(new MarkitdownError(`dsh-markitdown: URL body exceeded the ${connection.maxInputBytes} byte limit`))
+            response.destroy()
+            return
+          }
+          chunks.push(chunk)
+        })
+        response.on('end', () => resolvePromise(Buffer.concat(chunks)))
+        response.on('error', error => rejectPromise(new MarkitdownError(`dsh-markitdown: failed reading URL body: ${error.message}`)))
+      })
+      return { bytes: new Uint8Array(body), finalUrl: current.href }
     }
-    await response.body?.cancel().catch(() => {})
-    if (location == null) return
+    response.resume()
     current = new URL(location, current)
   }
-  throw new MarkitdownError('dsh-markitdown: URL exceeded the redirect limit during egress checks')
+  throw new MarkitdownError('dsh-markitdown: URL exceeded the redirect limit')
+}
+
+/** Hosts whose transcript converter needs the URL itself, not downloaded bytes. */
+const URL_PASSTHROUGH_HOSTS = /(^|\.)youtube\.com$/iu
+
+/** Convert downloaded URL bytes through a temporary file, then remove it. */
+async function convertDownloaded(connection: Connection, bytes: Uint8Array, extension: string, hints: ConvertHints | undefined): Promise<string> {
+  const directory = await mkdtemp(join(tmpdir(), 'dsh-markitdown-'))
+  try {
+    const target = join(directory, `download.${extension}`)
+    await writeFile(target, bytes)
+    const args = ['-m', 'markitdown']
+    appendHintFlags(args, hints, connection)
+    args.push(target)
+    const { stdout } = await run(connection, args)
+    return stdout
+  } finally {
+    await rm(directory, { recursive: true, force: true }).catch(() => {})
+  }
+}
+
+/**
+ * Convert one http(s) source: download it with pinned egress validation and
+ * convert the bytes from a temporary file, so MarkItDown never re-resolves
+ * the host itself (no DNS-rebinding gap). YouTube is the documented
+ * exception — its transcript converter requires the URL — and its connect
+ * addresses were still pinned to public ranges at download time.
+ */
+export async function convertUrl(connection: Connection, source: string, hints: ConvertHints | undefined): Promise<string> {
+  const { bytes, finalUrl } = await fetchUrlPinned(connection, source)
+  const finalHost = new URL(finalUrl).hostname
+  if (URL_PASSTHROUGH_HOSTS.test(finalHost) && (hints?.extensionHint ?? '') === '') {
+    const args = ['-m', 'markitdown']
+    appendHintFlags(args, hints, connection)
+    args.push(source)
+    const { stdout } = await run(connection, args)
+    return stdout
+  }
+  const urlExtension = new URL(finalUrl).pathname.split('.').pop()?.toLowerCase() ?? ''
+  if (SUPPORTED_BY_EXT.has(urlExtension)) return await convertDownloaded(connection, bytes, urlExtension, hints)
+  if ((hints?.extensionHint ?? '') !== '') {
+    return await convertDownloaded(connection, bytes, sanitizeHintedExtension(hints?.extensionHint as string), hints)
+  }
+  throw new MarkitdownError(
+    `dsh-markitdown: cannot infer a converter for URL "${finalUrl}" (no recognizable extension); pass extensionHint.`,
+  )
 }
 
 /** Absolute path of the bundled LLM helper script. */
@@ -370,12 +478,7 @@ export async function convertOne(connection: Connection, spec: ConvertSpec): Pro
   if (source === undefined) throw new MarkitdownError('dsh-markitdown: nothing to convert — pass source or stdinBase64')
 
   if (isUrl(source)) {
-    await assertUrlEgress(connection, source)
-    const args = ['-m', 'markitdown']
-    appendHintFlags(args, hints, connection)
-    args.push(source)
-    const { stdout } = await run(connection, args)
-    return stdout
+    return await convertUrl(connection, source, hints)
   }
 
   if (!isAbsolute(source)) throw new MarkitdownError(`dsh-markitdown: path must be absolute, got "${source}"`)
@@ -416,32 +519,44 @@ export async function convertWithLlm(connection: Connection, spec: ConvertSpec):
   if (spec.stdinBase64 !== undefined) throw new MarkitdownError('dsh-markitdown: LLM-assisted conversion does not support stdinBase64')
   const source = spec.source
   if (source === undefined) throw new MarkitdownError('dsh-markitdown: nothing to convert — pass source')
-  if (isUrl(source)) {
-    if (!connection.llmAllowUrls) {
-      throw new MarkitdownError('dsh-markitdown: URL sources are disabled in LLM mode (internal content would leave the host); set llmAllowUrls to permit them')
+  let downloadedDir: string | undefined
+  let effectiveSource = source
+  try {
+    if (isUrl(source)) {
+      if (!connection.llmAllowUrls) {
+        throw new MarkitdownError('dsh-markitdown: URL sources are disabled in LLM mode (internal content would leave the host); set llmAllowUrls to permit them')
+      }
+      const { bytes, finalUrl } = await fetchUrlPinned(connection, source)
+      const extension = new URL(finalUrl).pathname.split('.').pop()?.toLowerCase() ?? 'bin'
+      downloadedDir = await mkdtemp(join(tmpdir(), 'dsh-markitdown-'))
+      effectiveSource = join(downloadedDir, `download.${extension}`)
+      await writeFile(effectiveSource, bytes)
+    } else {
+      if (!isAbsolute(source)) throw new MarkitdownError(`dsh-markitdown: path must be absolute, got "${source}"`)
+      if (connection.allowedRoot !== undefined) await assertInsideRoot(connection.allowedRoot, source, 'source')
+      try {
+        const size = (await stat(source)).size
+        if (size > connection.maxInputBytes) throw new MarkitdownError(`dsh-markitdown: "${source}" is ${size} bytes, above the ${connection.maxInputBytes} byte limit`)
+      } catch (error) {
+        if (error instanceof MarkitdownError) throw error
+        throw new MarkitdownError(`dsh-markitdown: cannot read "${source}" (file missing or not readable)`)
+      }
     }
-    await assertUrlEgress(connection, source)
-  } else {
-    if (!isAbsolute(source)) throw new MarkitdownError(`dsh-markitdown: path must be absolute, got "${source}"`)
-    if (connection.allowedRoot !== undefined) await assertInsideRoot(connection.allowedRoot, source, 'source')
-    try {
-      const size = (await stat(source)).size
-      if (size > connection.maxInputBytes) throw new MarkitdownError(`dsh-markitdown: "${source}" is ${size} bytes, above the ${connection.maxInputBytes} byte limit`)
-    } catch (error) {
-      if (error instanceof MarkitdownError) throw error
-      throw new MarkitdownError(`dsh-markitdown: cannot read "${source}" (file missing or not readable)`)
+    const apiKey = process.env[connection.llmApiKeyEnv]?.trim()
+    if (apiKey === undefined || apiKey === '') {
+      throw new MarkitdownError(
+        `dsh-markitdown: environment variable ${connection.llmApiKeyEnv} is not set. Export it (or pick another name via llmApiKeyEnv) to enable LLM-assisted conversion.`,
+      )
+    }
+    const args = [llmHelperPath(), connection.llmModel, connection.llmApiKeyEnv, effectiveSource]
+    if ((spec.hints?.extensionHint ?? '') !== '') args.push('--extension', sanitizeHintedExtension(spec.hints?.extensionHint as string))
+    const { stdout } = await run(connection, args)
+    return stdout
+  } finally {
+    if (downloadedDir !== undefined) {
+      await rm(downloadedDir, { recursive: true, force: true }).catch(() => {})
     }
   }
-  const apiKey = process.env[connection.llmApiKeyEnv]?.trim()
-  if (apiKey === undefined || apiKey === '') {
-    throw new MarkitdownError(
-      `dsh-markitdown: environment variable ${connection.llmApiKeyEnv} is not set. Export it (or pick another name via llmApiKeyEnv) to enable LLM-assisted conversion.`,
-    )
-  }
-  const args = [llmHelperPath(), connection.llmModel, connection.llmApiKeyEnv, source]
-  if ((spec.hints?.extensionHint ?? '') !== '') args.push('--extension', sanitizeHintedExtension(spec.hints?.extensionHint as string))
-  const { stdout } = await run(connection, args)
-  return stdout
 }
 
 /** Per-source outcome of one batch conversion. */

@@ -20,8 +20,10 @@ model-facing tools — no MCP, no bundled binaries. The plugin drives the
     `extensionHint`/`mimeHint`);
   - hints map to the CLI: `extensionHint` (-x, also admits unlisted local
     extensions), `mimeHint` (-m), `charsetHint` (-c), `keepDataUris`; URL
-    sources pass an egress check (loopback/private/link-local targets are
-    refused unless `allowPrivateUrls`);
+    sources are downloaded with connection-pinned egress validation (the
+    address that is checked is the address that is connected to — no
+    DNS-rebinding gap) and converted from the downloaded bytes; loopback,
+    private and link-local targets are refused unless `allowPrivateUrls`;
   - `output` writes the single-source result to a file, `outputDir` writes
     `<name>.md` per source; otherwise Markdown comes back inline.
 - **LLM-assisted conversion** (config `llmModel`): embedded images in Office

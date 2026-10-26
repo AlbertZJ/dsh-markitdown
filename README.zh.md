@@ -19,8 +19,10 @@
   - `stdinBase64`：以 canonical base64 字节走 MarkItDown stdin（必须给
     `extensionHint`/`mimeHint`）；
   - 提示参数对应 CLI：`extensionHint`（-x，也可放行进白名单外的本地扩展名）、
-    `mimeHint`（-m）、`charsetHint`（-c）、`keepDataUris`、
-    `usePlugins`（第三方 MarkItDown converter 插件）；
+    `mimeHint`（-m）、`charsetHint`（-c）、`keepDataUris`；
+  - URL 来源经连接级钉扎出口校验后下载字节再转换（校验的地址即连接的
+    地址，无 DNS rebinding 间隙；loopback/私网/链路本地目标默认拒绝，
+    除非 `allowPrivateUrls`）；
   - `output` 把单来源结果写文件，`outputDir` 按来源写 `<名称>.md`；
     默认内联返回 Markdown。
 - **LLM 辅助转换**（配置 `llmModel`）：Office 文档内嵌图片由

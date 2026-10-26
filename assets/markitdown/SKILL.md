@@ -46,11 +46,17 @@ only when the plugin admin enables `allowPlugins` in the plugin config.
 
 ## URL sources and egress
 
-`path`/`paths` accept http(s) URLs (e.g. YouTube links). Every URL passes an
-egress check before conversion: the host and every redirect hop must resolve
-to globally routable addresses, redirect targets must stay on http(s), and
-credentials in the URL are rejected. Internal addresses (loopback, private,
-link-local) are refused unless the admin sets `allowPrivateUrls`.
+`path`/`paths` accept http(s) URLs (e.g. YouTube links). Every URL is
+downloaded with connection-pinned egress validation before conversion: the
+plugin resolves the host itself, connects only to a globally routable
+address (the checked address is the connected address, so DNS rebinding
+cannot swap targets mid-handshake), follows redirects manually with the
+same check per hop, and hands the downloaded bytes to MarkItDown via a
+temporary file — MarkItDown never re-resolves the host. Internal addresses
+(loopback, private, link-local) are refused unless the admin sets
+`allowPrivateUrls`. YouTube transcript URLs are the documented exception:
+the URL itself is passed to MarkItDown (its converter requires it), still
+after the same pinned connection check.
 
 ## LLM-assisted conversion
 

@@ -1,6 +1,6 @@
 {
   "name": "dsh-markitdown",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Microsoft MarkItDown integration for DeepSeek Harness: convert PDF, Office, HTML, images, audio and more to Markdown through model-facing tools, plus a bundled conversion skill.",
   "keywords": [
     "deepseek-harness",
