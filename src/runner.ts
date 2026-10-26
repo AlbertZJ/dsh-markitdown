@@ -12,6 +12,7 @@
  * variable — the key never enters the plugin configuration.
  */
 import { spawn } from 'node:child_process'
+import { lookup } from 'node:dns/promises'
 import { realpath, stat } from 'node:fs/promises'
 import { isAbsolute, join, normalize, sep } from 'node:path'
 import { Buffer } from 'node:buffer'
@@ -38,6 +39,16 @@ export interface Connection {
   readonly llmModel?: string
   /** Environment variable holding the LLM API key; default OPENAI_API_KEY. */
   readonly llmApiKeyEnv: string
+  /**
+   * LLM mode never accepts URL sources unless this is true: an internal
+   * document fetched from a URL would leave the host through the LLM API.
+   * Local file paths are unaffected.
+   */
+  readonly llmAllowUrls: boolean
+  /** Allow third-party MarkItDown converter plugins (CLI -p); admin decision. */
+  readonly allowPlugins: boolean
+  /** Permit URL sources that resolve to loopback/private/link-local addresses. */
+  readonly allowPrivateUrls: boolean
 }
 
 /** Error type surfaced to the model with setup guidance attached. */
@@ -102,7 +113,7 @@ export function supportedExtensions(): string[] {
   return SUPPORTED_FORMATS.map(format => format.extension)
 }
 
-/** Optional MarkItDown CLI hints and feature flags for one conversion. */
+/** Optional MarkItDown CLI hints for one conversion. */
 export interface ConvertHints {
   /** `-x`: file-extension hint (also enables otherwise-unknown local files and stdin input). */
   readonly extensionHint?: string
@@ -112,8 +123,34 @@ export interface ConvertHints {
   readonly charsetHint?: string
   /** `--keep-data-uris`: keep base64 image payloads in the output instead of truncating. */
   readonly keepDataUris?: boolean
-  /** `-p`: enable third-party MarkItDown converter plugins installed in the Python environment. */
-  readonly usePlugins?: boolean
+}
+
+/**
+ * Extensions admitted via extensionHint beyond the built-in supported list:
+ * text-shaped formats MarkItDown's plain-text converter handles. Keeps the
+ * hint gate aligned with the allowlist instead of accepting arbitrary input.
+ */
+const HINTABLE_EXTENSIONS = new Set([
+  'txt', 'log', 'yaml', 'yml', 'toml', 'ini', 'cfg', 'conf', 'rss', 'atom',
+  'py', 'js', 'ts', 'css', 'sh',
+])
+
+/**
+ * Validate one hinted extension: normalize (lowercase, strip one leading
+ * dot), constrain the charset, and require membership in the supported or
+ * hintable lists.
+ */
+export function sanitizeHintedExtension(hint: string): string {
+  const normalized = hint.trim().toLowerCase().replace(/^\.+/, '')
+  if (!/^[a-z0-9]{1,10}$/u.test(normalized)) {
+    throw new MarkitdownError(`dsh-markitdown: extensionHint "${hint}" is not a safe extension name`)
+  }
+  if (!SUPPORTED_BY_EXT.has(normalized) && !HINTABLE_EXTENSIONS.has(normalized)) {
+    throw new MarkitdownError(
+      `dsh-markitdown: extensionHint ".${normalized}" is not supported or hintable. Supported: ${supportedExtensions().join(', ')}; hintable extras: ${[...HINTABLE_EXTENSIONS].join(', ')}.`,
+    )
+  }
+  return normalized
 }
 
 /** One conversion request: a local path, an http(s) URL, or stdin bytes. */
@@ -127,12 +164,12 @@ export interface ConvertSpec {
 }
 
 /** Append the CLI flag form of every provided hint. */
-function appendHintFlags(args: string[], hints: ConvertHints | undefined): void {
-  if (hints?.extensionHint !== undefined && hints.extensionHint !== '') args.push('-x', hints.extensionHint)
-  if (hints?.mimeHint !== undefined && hints.mimeHint !== '') args.push('-m', hints.mimeHint)
-  if (hints?.charsetHint !== undefined && hints.charsetHint !== '') args.push('-c', hints.charsetHint)
+function appendHintFlags(args: string[], hints: ConvertHints | undefined, connection: Connection): void {
+  if ((hints?.extensionHint ?? '') !== '') args.push('-x', sanitizeHintedExtension(hints?.extensionHint as string))
+  if ((hints?.mimeHint ?? '') !== '') args.push('-m', hints?.mimeHint as string)
+  if ((hints?.charsetHint ?? '') !== '') args.push('-c', hints?.charsetHint as string)
   if (hints?.keepDataUris === true) args.push('--keep-data-uris')
-  if (hints?.usePlugins === true) args.push('-p')
+  if (connection.allowPlugins) args.push('-p')
 }
 
 /** Spawn the interpreter with arguments and collect output under the timeout and output cap. */
@@ -211,6 +248,96 @@ export function isUrl(source: string): boolean {
   return /^https?:\/\//iu.test(source)
 }
 
+/** IPv4 string to a 32-bit number for range checks. */
+function ipv4ToNumber(address: string): number | undefined {
+  const parts = address.split('.')
+  if (parts.length !== 4) return undefined
+  let value = 0
+  for (const part of parts) {
+    if (!/^\d{1,3}$/u.test(part)) return undefined
+    const octet = Number(part)
+    if (octet > 255) return undefined
+    value = value * 256 + octet
+  }
+  return value
+}
+
+/** True when an IP address is not globally routable (SSRF target). */
+function isNonPublicAddress(address: string): boolean {
+  if (address.includes(':')) {
+    const compressed = address.toLowerCase().replace(/^\[[^\]]*\]$/u, '')
+    if (compressed === '::' || compressed === '::1') return true
+    if (/^fe[89ab]/u.test(compressed)) return true // link-local fe80::/10
+    if (compressed.startsWith('fc') || compressed.startsWith('fd')) return true // unique-local fc00::/7
+    return false
+  }
+  const value = ipv4ToNumber(address)
+  if (value === undefined) return true // unparseable: refuse
+  if (value === 0) return true // 0.0.0.0/8 unspecified
+  if (value >>> 24 === 127) return true // loopback
+  if (value >>> 24 === 10) return true // RFC1918
+  if ((value >>> 20) === 0xAC1) return true // 172.16.0.0/12 (0xAC1 = 172.16 >> 4)
+  if ((value >>> 16) === 0xC0A8) return true // 192.168.0.0/16
+  if ((value >>> 16) === 0xA9FE) return true // 169.254.0.0/16 link-local
+  return false
+}
+
+/** Resolve every address for one host and refuse non-public targets. */
+async function assertHostPublic(hostname: string): Promise<void> {
+  let addresses: readonly { address: string }[]
+  try {
+    addresses = await lookup(hostname, { all: true })
+  } catch {
+    throw new MarkitdownError(`dsh-markitdown: cannot resolve URL host "${hostname}"`)
+  }
+  for (const { address } of addresses) {
+    if (isNonPublicAddress(address)) {
+      throw new MarkitdownError(
+        `dsh-markitdown: URL host "${hostname}" resolves to non-public address ${address}; set allowPrivateUrls to permit internal targets`,
+      )
+    }
+  }
+}
+
+const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308])
+const MAX_REDIRECT_HOPS = 5
+
+/**
+ * Egress policy for URL sources (SSRF guard): the initial host and every
+ * redirect hop must resolve to globally routable addresses, and redirect
+ * targets must stay on http(s). No-op when allowPrivateUrls is set.
+ */
+export async function assertUrlEgress(connection: Connection, rawUrl: string): Promise<void> {
+  if (connection.allowPrivateUrls) return
+  let current = new URL(rawUrl)
+  for (let hop = 0; hop <= MAX_REDIRECT_HOPS; hop += 1) {
+    if (current.username !== '' || current.password !== '') {
+      throw new MarkitdownError('dsh-markitdown: URLs with embedded credentials are rejected')
+    }
+    if (!/^https?:$/iu.test(current.protocol)) {
+      throw new MarkitdownError(`dsh-markitdown: URL scheme ${current.protocol} is not allowed`)
+    }
+    await assertHostPublic(current.hostname)
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), Math.min(connection.timeoutMs, 10_000))
+    let response: Response | undefined
+    try {
+      response = await fetch(current, { method: 'GET', redirect: 'manual', signal: controller.signal }).catch(() => undefined)
+    } finally {
+      clearTimeout(timer)
+    }
+    const location = response?.headers.get('location')
+    if (response === undefined || !REDIRECT_STATUSES.has(response.status) || location === null) {
+      await response?.body?.cancel().catch(() => {})
+      return
+    }
+    await response.body?.cancel().catch(() => {})
+    if (location == null) return
+    current = new URL(location, current)
+  }
+  throw new MarkitdownError('dsh-markitdown: URL exceeded the redirect limit during egress checks')
+}
+
 /** Absolute path of the bundled LLM helper script. */
 export function llmHelperPath(): string {
   return fileURLToPath(new URL('../python/llm_convert.py', import.meta.url))
@@ -232,7 +359,7 @@ export async function convertOne(connection: Connection, spec: ConvertSpec): Pro
       throw new MarkitdownError(`dsh-markitdown: stdin payload is ${decoded.byteLength} bytes, above the ${connection.maxInputBytes} byte limit`)
     }
     const args = ['-m', 'markitdown']
-    appendHintFlags(args, hints)
+    appendHintFlags(args, hints, connection)
     // No positional argument: the MarkItDown CLI reads stdin when the
     // filename is empty (a literal '-' is treated as a file name).
     const { stdout } = await run(connection, args, new Uint8Array(decoded))
@@ -243,8 +370,9 @@ export async function convertOne(connection: Connection, spec: ConvertSpec): Pro
   if (source === undefined) throw new MarkitdownError('dsh-markitdown: nothing to convert — pass source or stdinBase64')
 
   if (isUrl(source)) {
+    await assertUrlEgress(connection, source)
     const args = ['-m', 'markitdown']
-    appendHintFlags(args, hints)
+    appendHintFlags(args, hints, connection)
     args.push(source)
     const { stdout } = await run(connection, args)
     return stdout
@@ -268,7 +396,7 @@ export async function convertOne(connection: Connection, spec: ConvertSpec): Pro
     throw new MarkitdownError(`dsh-markitdown: "${source}" is ${size} bytes, above the ${connection.maxInputBytes} byte limit`)
   }
   const args = ['-m', 'markitdown']
-  appendHintFlags(args, hints)
+  appendHintFlags(args, hints, connection)
   args.push(source)
   const { stdout } = await run(connection, args)
   return stdout
@@ -277,7 +405,9 @@ export async function convertOne(connection: Connection, spec: ConvertSpec): Pro
 /**
  * Convert one source with LLM assistance (image descriptions instead of raw
  * data URIs) through the bundled helper. Requires the `openai` package and
- * the API key environment variable configured on the plugin.
+ * the API key environment variable configured on the plugin. URL sources are
+ * refused unless llmAllowUrls is set — internal content must never leave the
+ * host through the LLM API by accident.
  */
 export async function convertWithLlm(connection: Connection, spec: ConvertSpec): Promise<string> {
   if (connection.llmModel === undefined || connection.llmModel === '') {
@@ -286,7 +416,12 @@ export async function convertWithLlm(connection: Connection, spec: ConvertSpec):
   if (spec.stdinBase64 !== undefined) throw new MarkitdownError('dsh-markitdown: LLM-assisted conversion does not support stdinBase64')
   const source = spec.source
   if (source === undefined) throw new MarkitdownError('dsh-markitdown: nothing to convert — pass source')
-  if (!isUrl(source)) {
+  if (isUrl(source)) {
+    if (!connection.llmAllowUrls) {
+      throw new MarkitdownError('dsh-markitdown: URL sources are disabled in LLM mode (internal content would leave the host); set llmAllowUrls to permit them')
+    }
+    await assertUrlEgress(connection, source)
+  } else {
     if (!isAbsolute(source)) throw new MarkitdownError(`dsh-markitdown: path must be absolute, got "${source}"`)
     if (connection.allowedRoot !== undefined) await assertInsideRoot(connection.allowedRoot, source, 'source')
     try {
@@ -304,7 +439,7 @@ export async function convertWithLlm(connection: Connection, spec: ConvertSpec):
     )
   }
   const args = [llmHelperPath(), connection.llmModel, connection.llmApiKeyEnv, source]
-  if ((spec.hints?.extensionHint ?? '') !== '') args.push('--extension', spec.hints?.extensionHint as string)
+  if ((spec.hints?.extensionHint ?? '') !== '') args.push('--extension', sanitizeHintedExtension(spec.hints?.extensionHint as string))
   const { stdout } = await run(connection, args)
   return stdout
 }

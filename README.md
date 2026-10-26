@@ -19,8 +19,9 @@ model-facing tools — no MCP, no bundled binaries. The plugin drives the
   - `stdinBase64`: canonical base64 bytes via MarkItDown stdin (requires
     `extensionHint`/`mimeHint`);
   - hints map to the CLI: `extensionHint` (-x, also admits unlisted local
-    extensions), `mimeHint` (-m), `charsetHint` (-c), `keepDataUris`,
-    `usePlugins` (third-party MarkItDown converter plugins);
+    extensions), `mimeHint` (-m), `charsetHint` (-c), `keepDataUris`; URL
+    sources pass an egress check (loopback/private/link-local targets are
+    refused unless `allowPrivateUrls`);
   - `output` writes the single-source result to a file, `outputDir` writes
     `<name>.md` per source; otherwise Markdown comes back inline.
 - **LLM-assisted conversion** (config `llmModel`): embedded images in Office
@@ -72,6 +73,14 @@ package.
     # Requires `pip install openai` and the key exported in the env var.
     # llmModel: gpt-4o
     # llmApiKeyEnv: OPENAI_API_KEY
+    # Allow URL sources in LLM mode (default off: internal content must not
+    # leave the host through the LLM API).
+    # llmAllowUrls: false
+    # Permit third-party MarkItDown converter plugins (CLI -p); default off.
+    # allowPlugins: false
+    # Allow URL sources resolving to loopback/private/link-local addresses
+    # (default off; SSRF guard for URL conversion).
+    # allowPrivateUrls: false
 ```
 
 ## Verify

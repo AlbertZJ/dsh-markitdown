@@ -39,7 +39,6 @@ interface ConvertArgs {
   readonly mimeHint?: string
   readonly charsetHint?: string
   readonly keepDataUris?: boolean
-  readonly usePlugins?: boolean
   readonly output?: string
   readonly outputDir?: string
 }
@@ -50,7 +49,6 @@ function hintsOf(args: ConvertArgs): ConvertHints | undefined {
     ...args.mimeHint === undefined || args.mimeHint === '' ? {} : { mimeHint: args.mimeHint },
     ...args.charsetHint === undefined || args.charsetHint === '' ? {} : { charsetHint: args.charsetHint },
     ...args.keepDataUris === true ? { keepDataUris: true } : {},
-    ...args.usePlugins === true ? { usePlugins: true } : {},
   }
   return Object.keys(hints).length === 0 ? undefined : hints
 }
@@ -111,7 +109,8 @@ export function registerTools(ctx: Context, connection: Connection): void {
       'Use `paths` for a batch (up to ' + String(MAX_BATCH) + '); per-file failures do not abort the batch.',
       'Pass output to write the single-source result to a file, or outputDir to write <name>.md per source; otherwise Markdown comes back inline.',
       'stdinBase64 needs an extensionHint or mimeHint so MarkItDown can pick a converter.',
-      'Hints map to the MarkItDown CLI: extensionHint (-x), mimeHint (-m), charsetHint (-c), keepDataUris, usePlugins (third-party converter plugins).',
+      'Hints map to the MarkItDown CLI: extensionHint (-x), mimeHint (-m), charsetHint (-c), keepDataUris.',
+      'Third-party converter plugins (CLI -p) run only when the plugin admin enables allowPlugins in the config.',
       llmNote,
       'Run markitdown_check first if the environment has not been verified this session.',
     ].join(' '),
@@ -123,7 +122,6 @@ export function registerTools(ctx: Context, connection: Connection): void {
       mimeHint: { type: 'string', description: 'CLI -m: MIME-type hint.' },
       charsetHint: { type: 'string', description: 'CLI -c: charset hint, e.g. UTF-8.' },
       keepDataUris: { type: 'boolean', description: 'CLI --keep-data-uris: keep base64 image payloads instead of truncating.' },
-      usePlugins: { type: 'boolean', description: 'CLI -p: enable third-party MarkItDown converter plugins installed in the Python environment.' },
       output: { type: 'string', description: 'Absolute output .md path; single-source only.' },
       outputDir: { type: 'string', description: 'Absolute directory; writes <source-name>.md per converted source.' },
     },

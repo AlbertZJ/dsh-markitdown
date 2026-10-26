@@ -23,6 +23,12 @@
  *                 API key in the llmApiKeyEnv environment variable.
  * - llmApiKeyEnv: environment variable holding the LLM API key; default
  *                 OPENAI_API_KEY.
+ * - llmAllowUrls: allow URL sources in LLM mode (default off — internal
+ *                 content must not leave the host through the LLM API).
+ * - allowPlugins: permit third-party MarkItDown converter plugins (CLI -p);
+ *                 an admin decision, not exposed as a per-call tool argument.
+ * - allowPrivateUrls: allow URL sources resolving to loopback/private/
+ *                 link-local addresses (default off; SSRF guard).
  * - assetRoot:    override the packaged skills directory (development).
  */
 import type { Context } from '@deepseek-ai/cordis'
@@ -51,6 +57,12 @@ export interface Config {
   llmModel?: string
   /** Environment variable holding the LLM API key; default OPENAI_API_KEY. */
   llmApiKeyEnv?: string
+  /** Allow URL sources in LLM mode; default false (internal content must not leave the host). */
+  llmAllowUrls?: boolean
+  /** Permit third-party MarkItDown converter plugins (CLI -p); default false. */
+  allowPlugins?: boolean
+  /** Permit URL sources resolving to loopback/private/link-local addresses; default false. */
+  allowPrivateUrls?: boolean
   /** Absolute directory of bundled skills; defaults to the packaged assets. */
   assetRoot?: string
 }
@@ -64,6 +76,9 @@ export const Config: z<Config> = z.object({
   allowedRoot: z.string().min(1),
   llmModel: z.string().min(1),
   llmApiKeyEnv: z.string().min(1),
+  llmAllowUrls: z.boolean(),
+  allowPlugins: z.boolean(),
+  allowPrivateUrls: z.boolean(),
   assetRoot: z.string().min(1),
 })
 
@@ -76,6 +91,9 @@ export function resolveConfig(config: Config): {
   allowedRoot?: string
   llmModel?: string
   llmApiKeyEnv: string
+  llmAllowUrls: boolean
+  allowPlugins: boolean
+  allowPrivateUrls: boolean
   assetRoot?: string
 } {
   const command = (config.command ?? 'python').trim()
@@ -92,6 +110,9 @@ export function resolveConfig(config: Config): {
     allowedRoot: config.allowedRoot,
     llmModel: config.llmModel,
     llmApiKeyEnv,
+    llmAllowUrls: config.llmAllowUrls ?? false,
+    allowPlugins: config.allowPlugins ?? false,
+    allowPrivateUrls: config.allowPrivateUrls ?? false,
     assetRoot: config.assetRoot,
   }
 }

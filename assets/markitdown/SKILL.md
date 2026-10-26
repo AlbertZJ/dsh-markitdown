@@ -37,10 +37,20 @@ own the process, timeout and error handling.
 
 `extensionHint` / `mimeHint` / `charsetHint` map to the MarkItDown CLI's
 `-x` / `-m` / `-c` flags. `extensionHint` also admits local files whose
-extension is not in the built-in supported list, and is required for stdin.
-`keepDataUris` keeps base64 image payloads (by default they are truncated);
-`usePlugins` enables third-party MarkItDown converter plugins installed in
-the Python environment.
+extension is not in the built-in supported list, and is required for stdin;
+hinted extensions are validated against the supported list plus a small set
+of plain-text formats (txt, log, yaml, yml, toml, ini, cfg, conf, rss, atom,
+py, js, ts, css, sh). `keepDataUris` keeps base64 image payloads (by default
+they are truncated). Third-party MarkItDown converter plugins (`-p`) run
+only when the plugin admin enables `allowPlugins` in the plugin config.
+
+## URL sources and egress
+
+`path`/`paths` accept http(s) URLs (e.g. YouTube links). Every URL passes an
+egress check before conversion: the host and every redirect hop must resolve
+to globally routable addresses, redirect targets must stay on http(s), and
+credentials in the URL are rejected. Internal addresses (loopback, private,
+link-local) are refused unless the admin sets `allowPrivateUrls`.
 
 ## LLM-assisted conversion
 
