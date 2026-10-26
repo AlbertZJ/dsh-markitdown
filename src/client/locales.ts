@@ -1,8 +1,8 @@
 /** Locale bundles for the MarkItDown settings tab. */
 
-/** Locale keys the tab renders. */
+/** Locale keys the section renders. */
 export type MarkitdownSettingsLocaleKey =
-  | 'tab'
+  | 'nav'
   | 'title' | 'description'
   | 'llmOffNote'
   | 'providerLabel' | 'providerOpenai' | 'providerDeepseek' | 'providerCustom'
@@ -16,7 +16,7 @@ export type MarkitdownSettingsLocaleKey =
 
 /** English copy. */
 export const en: Record<MarkitdownSettingsLocaleKey, string> = {
-  tab: 'MarkItDown',
+  nav: 'MarkItDown',
   title: 'MarkItDown LLM provider',
   description: 'LLM-assisted conversion describes embedded images in Office documents instead of emitting raw data URIs. Pick a provider, enter a model, and store the API key — the key is kept in the dsh credential store, never in the profile configuration.',
   llmOffNote: 'LLM mode is off until a model name is saved.',
@@ -51,7 +51,7 @@ export const en: Record<MarkitdownSettingsLocaleKey, string> = {
 
 /** Simplified Chinese copy. */
 export const zh: Record<MarkitdownSettingsLocaleKey, string> = {
-  tab: 'MarkItDown',
+  nav: 'MarkItDown',
   title: 'MarkItDown LLM 提供商',
   description: 'LLM 辅助转换会把 Office 文档中的内嵌图片描述成文字，而不是输出原始 data URI。选择一个提供商、填写模型名并保存 API 密钥——密钥存放在 dsh 凭证存储中，不会写进配置文件。',
   llmOffNote: '保存模型名后才会开启 LLM 模式。',

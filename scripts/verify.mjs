@@ -31,11 +31,11 @@ for (const dep of ['@deepseek-ai/dsh-client-locale', '@deepseek-ai/dsh-client-ui
 const clientBundle = read('lib/client.js')
 // Whitespace-normalized check: the minifier may split the footer across lines.
 const flattened = clientBundle.replace(/\s+/gu, ' ')
-for (const token of ['window.__ModuleLoader__.load', 'factory: (require)', 'return module.exports; } });', 'settings.plugins.tab']) {
+for (const token of ['window.__ModuleLoader__.load', 'factory: (require)', 'return module.exports; } });', 'settings.section']) {
   if (!flattened.includes(token.replace(/\s+/gu, ' '))) fail(`lib/client.js missing ${token}`)
 }
 if (/require\((['"])@deepseek-ai\//u.test(clientBundle)) fail('lib/client.js must not require @deepseek-ai/* at runtime (module table provides them)')
-ok.push('client bundle (module-loader shape, settings.plugins.tab)')
+ok.push('client bundle (module-loader shape, settings.section)')
 
 for (const dep of ['@deepseek-ai/cordis', '@deepseek-ai/dsh-tools', '@deepseek-ai/dsh-skill', '@deepseek-ai/schemastery']) {
   if (!(dep in (pkg.peerDependencies ?? {}))) fail(`peerDependencies missing ${dep}`)

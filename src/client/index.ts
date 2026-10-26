@@ -1,9 +1,10 @@
 /**
- * dsh-markitdown, browser half: the MarkItDown tab on the client's Plugins
- * settings page. Provider presets, the OpenAI-compatible endpoint, the model
- * name, and the API key (to the dsh credential store — never the profile).
- * The tab exists only while the host serves the plugin's entry namespace, so
- * deployments without the plugin show no trace.
+ * dsh-markitdown, browser half: a MarkItDown page of its own on the client's
+ * Settings window (next to 运营助手, not inside the plugin inventory). Provider
+ * presets, the OpenAI-compatible endpoint, the model name, and the API key
+ * (to the dsh credential store — never the profile). The page exists only
+ * while the host serves the plugin's entry namespace, so deployments without
+ * the plugin show no trace.
  */
 
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
@@ -13,17 +14,17 @@ import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
-import { MarkitdownSettingsTab } from './MarkitdownSettingsTab.tsx'
+import { MarkitdownSettingsSection } from './MarkitdownSettingsSection.tsx'
 import { ENTRY_ID } from './contract.ts'
 import { MarkitdownSettingsController, type MarkitdownSettingsFace } from './controller.ts'
 import { en, zh, type MarkitdownSettingsLocaleKey } from './locales.ts'
 
-export type { MarkitdownSettingsTabProps } from './MarkitdownSettingsTab.tsx'
+export type { MarkitdownSettingsSectionProps } from './MarkitdownSettingsSection.tsx'
 export type { MarkitdownSettingsLocaleKey } from './locales.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
-    /** MarkItDown settings tab copy. */
+    /** MarkItDown settings section copy. */
     'settings.markitdown': MarkitdownSettingsLocaleKey
   }
 }
@@ -35,7 +36,8 @@ export const NS = 'settings.markitdown'
 export const inject = ['slots', 'locale', 'remote', 'remote.credentials', 'configForms']
 
 /**
- * Contribute the MarkItDown tab while the host serves the plugin's entry.
+ * Contribute the MarkItDown settings page while the host serves the plugin's
+ * entry.
  * @param ctx - the browser plugin context.
  */
 export function apply(ctx: ClientContext): void {
@@ -47,16 +49,18 @@ export function apply(ctx: ClientContext): void {
     () => ctx.remote.$on('credentials/reference-updated', () => { controller.refreshKey() }),
     'dsh-markitdown: key invalidations',
   )
+  // Ordered after the official sections and after the ops assistant (110):
+  // document conversion is a niche concern, visited less often.
   ctx.effect(
-    () => ctx.configForms.whileServed([ENTRY_ID], () => ctx.slots.inject('settings.plugins.tab', () => ctx.slots.register({
-      name: 'settings.plugins.tab',
+    () => ctx.configForms.whileServed([ENTRY_ID], () => ctx.slots.inject('settings.section', () => ctx.slots.register({
+      name: 'settings.section',
       id: 'markitdown',
-      order: 20,
-      label: () => t('tab'),
+      order: 120,
+      label: () => t('nav'),
       locale: NS,
       inject: () => controller.inject(),
-    }, MarkitdownSettingsTab))),
-    'dsh-markitdown: settings tab',
+    }, MarkitdownSettingsSection))),
+    'dsh-markitdown: settings section',
   )
 }
 

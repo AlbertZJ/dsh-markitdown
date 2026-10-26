@@ -1,7 +1,7 @@
 /**
- * The MarkItDown settings tab: provider presets, endpoint/model fields, and
- * the API key row. The key is write-only — it goes to the credential store
- * and its value never renders back into the form.
+ * The MarkItDown settings section: provider presets, endpoint/model fields,
+ * and the API key row. The key is write-only — it goes to the credential
+ * store and its value never renders back into the form.
  */
 
 import { useState, type CSSProperties } from 'react'
@@ -9,13 +9,13 @@ import type { Translate } from '@deepseek-ai/dsh-client-locale/client'
 import { LLM_PROVIDER_PRESETS, type LlmProviderSelection, type MarkitdownSettingsState } from './contract.ts'
 import type { MarkitdownSettingsFace } from './controller.ts'
 
-/** Props the renderer binds for the tab. */
-export type MarkitdownSettingsTabProps =
+/** Props the renderer binds for the section. */
+export type MarkitdownSettingsSectionProps =
   { t: Translate; useMarkitdownSettings: <S>(selector: (state: MarkitdownSettingsState) => S) => S }
   & Omit<MarkitdownSettingsFace, 'hooks'>
 
-/** Render the provider/key form, as the Plugins settings section asks. */
-export function MarkitdownSettingsTab(props: MarkitdownSettingsTabProps) {
+/** Render the provider/key form, as the settings shell asks. */
+export function MarkitdownSettingsSection(props: MarkitdownSettingsSectionProps) {
   const { t, saveField, saveKey, clearKey } = props
   const state = props.useMarkitdownSettings(snapshot => snapshot)
   const [keyInput, setKeyInput] = useState('')
@@ -143,7 +143,7 @@ function BlurField(props: {
         placeholder={props.placeholder}
         value={shown}
         disabled={props.disabled}
-        onChange={event => setDraft(event.target.value)}
+        onChange={event => setDraft(event.currentTarget.value)}
         onBlur={commit}
         onKeyDown={event => { if (event.key === 'Enter') commit() }}
       />
