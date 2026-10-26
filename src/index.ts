@@ -40,6 +40,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type {} from './credentials-contract.js'
+import type { Connection } from './runner.js'
 import { registerSkills } from './skills.js'
 import { registerTools } from './tools.js'
 
@@ -118,6 +119,20 @@ export const Config = z.object({
   assetRoot: z.string().min(1),
 })
 
+/** Shared protocol cosmokit uses for live configuration references. */
+const VOLATILE_WRITE = Symbol.for('cosmokit.volatile.write')
+
+/**
+ * Read one parsed config field. Volatile fields reach the plugin as runtime
+ * references (their value only changes through the owning loader), so they
+ * must be unwrapped before use; ordinary fields pass through unchanged.
+ */
+function readField<T>(value: T | undefined): T | undefined {
+  if (value === null || typeof value !== 'object') return value
+  if (!(VOLATILE_WRITE in (value as object))) return value
+  return (value as unknown as { get(): T }).get()
+}
+
 /** Credential reference a provider profile falls back to when it names none. */
 export function defaultKeyEnv(providerId: string | undefined): string {
   if (providerId === 'openai') return 'OPENAI_API_KEY'
@@ -148,11 +163,13 @@ export function resolveConfig(config: Config): {
   // An explicitly chosen provider profile is the sole source for endpoint,
   // model and key reference; its empty model means LLM mode is off for that
   // provider rather than falling back to another provider's model.
-  const activeId = config.llmProvider?.trim() === '' ? undefined : config.llmProvider?.trim()
-  const active = activeId === undefined ? undefined : config.llmProviders?.[activeId]
-  const llmModel = (active === undefined ? config.llmModel : active.model)?.trim() || undefined
-  const llmBaseUrl = (active === undefined ? config.llmBaseUrl : active.baseUrl)?.trim() || undefined
-  const llmApiKeyEnv = ((active === undefined ? config.llmApiKeyEnv : active.apiKeyEnv)?.trim() || defaultKeyEnv(activeId))
+  const providerId = readField(config.llmProvider)?.trim()
+  const activeId = providerId === '' ? undefined : providerId
+  const profiles = readField(config.llmProviders)
+  const active = activeId === undefined ? undefined : profiles?.[activeId]
+  const llmModel = (active === undefined ? readField(config.llmModel) : active.model)?.trim() || undefined
+  const llmBaseUrl = (active === undefined ? readField(config.llmBaseUrl) : active.baseUrl)?.trim() || undefined
+  const llmApiKeyEnv = ((active === undefined ? readField(config.llmApiKeyEnv) : active.apiKeyEnv)?.trim() || defaultKeyEnv(activeId))
   if (command.length === 0) throw new Error('dsh-markitdown: command must not be empty')
   return {
     command,
@@ -172,12 +189,26 @@ export function resolveConfig(config: Config): {
 
 /** Activate the plugin: tools plus the bundled skill provider. */
 export function apply(ctx: Context, config: Config = {}): void {
-  const resolved = resolveConfig(config)
-  // Per-call resolution (never cached): the dsh credential store first, then
-  // ambient fallbacks such as the process environment. A key set in
-  // Settings → MarkItDown reaches the next conversion without a restart.
-  const resolveApiKey = async (): Promise<string | undefined> =>
-    (await ctx.credentials.resolve(resolved.llmApiKeyEnv))?.value
-  registerTools(ctx, { ...resolved, resolveApiKey })
-  registerSkills(ctx, 'dsh-markitdown', resolved.assetRoot)
+  // Ordinary fields are fixed for the mount lifetime; the provider selection
+  // is resolved per call, so a change made in Settings → MarkItDown (which
+  // updates the volatile references in place) reaches the next conversion
+  // without a restart. The API key is read from the dsh credential store on
+  // every call, environment fallbacks last.
+  const base = resolveConfig(config)
+  const connection: Connection = {
+    command: base.command,
+    timeoutMs: base.timeoutMs,
+    maxInputBytes: base.maxInputBytes,
+    maxOutputBytes: base.maxOutputBytes,
+    allowedRoot: base.allowedRoot,
+    get llmModel() { return resolveConfig(config).llmModel },
+    get llmBaseUrl() { return resolveConfig(config).llmBaseUrl },
+    get llmApiKeyEnv() { return resolveConfig(config).llmApiKeyEnv },
+    resolveApiKey: async () => (await ctx.credentials.resolve(resolveConfig(config).llmApiKeyEnv))?.value,
+    llmAllowUrls: base.llmAllowUrls,
+    allowPlugins: base.allowPlugins,
+    allowPrivateUrls: base.allowPrivateUrls,
+  }
+  registerTools(ctx, connection)
+  registerSkills(ctx, 'dsh-markitdown', base.assetRoot)
 }

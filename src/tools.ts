@@ -73,9 +73,10 @@ async function resolveOutputPath(connection: Connection, args: ConvertArgs, sour
 /** Register the two conversion tools. */
 export function registerTools(ctx: Context, connection: Connection): void {
   const formatList = SUPPORTED_FORMATS.map(format => `.${format.extension} (${format.extracts})`).join('; ')
-  const llmNote = connection.llmModel !== undefined
-    ? ` LLM-assisted conversion is ON (model ${connection.llmModel}, API key from ${connection.llmApiKeyEnv}): embedded images are described by the LLM instead of emitted as data URIs.`
-    : ''
+  // The active provider can change under Settings → MarkItDown while this
+  // tool stays registered, so the description names the behavior rather than
+  // the current model; markitdown_check reports the live selection.
+  const llmNote = 'When an LLM provider is active in Settings → MarkItDown, embedded images are described by that model instead of emitted as data URIs.'
 
   ctx.tools.register(defineTool({
     name: 'markitdown_check',
