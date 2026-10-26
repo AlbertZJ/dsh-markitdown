@@ -20,17 +20,31 @@ export type MarkitdownSettingsSectionProps =
 
 /** Render the per-provider form, as the settings shell asks. */
 export function MarkitdownSettingsSection(props: MarkitdownSettingsSectionProps) {
-  const { t, saveProviderField, activateProvider, deactivateProvider, saveKey, clearKey } = props
+  const { t, saveProviderField, activateProvider, deactivateProvider, setDescribeImages, saveKey, clearKey } = props
   const state = props.useMarkitdownSettings(snapshot => snapshot)
   const [keyInputs, setKeyInputs] = useState<Partial<Record<ProviderId, string>>>({})
   if (state.status === 'unavailable') return <p style={css.note}>{t('unavailable')}</p>
   const disabled = !state.writable || state.busy
+  const describeNotice = noticeWithoutProvider(state.notice)
   const setKeyInput = (provider: ProviderId, value: string) => {
     setKeyInputs(draft => ({ ...draft, [provider]: value }))
   }
   return (
     <div style={css.column}>
       <p style={css.description}>{t('description')}</p>
+      <div style={css.field}>
+        <label style={css.toggleRow}>
+          <input
+            type="checkbox"
+            checked={state.describeImages}
+            disabled={disabled}
+            onChange={event => { void setDescribeImages(event.currentTarget.checked) }}
+          />
+          <span style={css.label}>{t('describeLabel')}</span>
+        </label>
+        <span style={css.hint}>{t('describeHint')}</span>
+        {describeNotice !== undefined ? <p style={css.note} role="status">{noticeText(t, describeNotice)}</p> : null}
+      </div>
       {!state.active ? <p style={css.note}>{t('llmOffNote')}</p> : null}
       {state.providers.map(provider => {
         const keyInput = keyInputs[provider.id] ?? ''
@@ -179,7 +193,12 @@ function keyStateText(t: Translate, provider: MarkitdownProviderState): string {
 
 /** The notice when it belongs to the given provider card. */
 function noticeFor(notice: MarkitdownSettingsNotice | undefined, provider: ProviderId): MarkitdownSettingsNotice | undefined {
-  return notice?.provider === provider ? notice : undefined
+  return notice !== undefined && 'provider' in notice && notice.provider === provider ? notice : undefined
+}
+
+/** The description-toggle notice (the variants that carry no provider). */
+function noticeWithoutProvider(notice: MarkitdownSettingsNotice | undefined): MarkitdownSettingsNotice | undefined {
+  return notice !== undefined && !('provider' in notice) ? notice : undefined
 }
 
 /** Localized text of one write outcome. */
@@ -193,6 +212,8 @@ function noticeText(t: Translate, notice: MarkitdownSettingsNotice): string {
     case 'keySaved': return t('keySaved')
     case 'keyCleared': return t('keyCleared')
     case 'keyFailed': return t('keyFailed')
+    case 'describeSaved': return t('describeSaved')
+    case 'describeFailed': return t('describeFailed')
   }
 }
 
@@ -256,4 +277,5 @@ const css: Record<string, CSSProperties> = {
     cursor: 'pointer',
   },
   keyRow: { display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' },
+  toggleRow: { display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer' },
 }

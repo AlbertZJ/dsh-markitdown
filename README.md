@@ -26,23 +26,27 @@ model-facing tools — no MCP, no bundled binaries. The plugin drives the
     private and link-local targets are refused unless `allowPrivateUrls`;
   - `output` writes the single-source result to a file, `outputDir` writes
     `<name>.md` per source; otherwise Markdown comes back inline.
-- **LLM-assisted conversion**: embedded images in Office documents are
-  described by an OpenAI-compatible LLM instead of emitted as data URIs.
-  Configured on a dedicated **Settings → MarkItDown** page (not inside the
-  plugin inventory): one card per provider — OpenAI, DeepSeek, or a custom
-  endpoint — each keeping its own model and API key, with the active card
-  driving conversions. Keys go to the dsh credential store, never the profile
-  configuration; the per-provider `apiKeyEnv` reference and the environment
-  variable remain as fallbacks. Ships the `python/llm_convert.py` helper and
-  requires the `openai` package. DOCX gets extra handling because markitdown
-  0.1.x never sends Word images to the LLM: the helper unpacks `word/media` in
-  document order, describes each image once, and replaces the data-URI
-  placeholders in place, so one `markitdown_convert` call also returns the text
-  read out of the screenshots. Descriptions run at `temperature=0`, must
+- **DOCX image export**: embedded Word images are exported as files and the
+  data-URI placeholders are replaced with file links, so the session can open
+  the originals (`read_image`) and ask follow-up questions instead of trusting
+  a one-shot description. With `output` the images go to a sibling
+  `<name>.media/` directory and links are relative; with `outputDir` each
+  `<name>.media/` sits beside its Markdown; inline conversions use a temp
+  directory referenced absolutely. No model or API key is involved.
+- **Optional image descriptions**: on the dedicated **Settings → MarkItDown**
+  page (not inside the plugin inventory), a toggle turns on model-written
+  descriptions for each exported image, and one card per provider — OpenAI,
+  DeepSeek, or a custom endpoint — keeps each provider's model and API key,
+  with the active card driving conversions. Keys go to the dsh credential
+  store, never the profile configuration; the per-provider `apiKeyEnv`
+  reference and the environment variable remain as fallbacks. Ships the
+  `python/llm_convert.py` helper and requires the `openai` package for
+  descriptions only. DOCX gets extra handling because markitdown 0.1.x never
+  sends Word images to the LLM: the helper unpacks `word/media` in document
+  order, exports (and, when enabled, describes) each image once, and replaces
+  the placeholders in place. Descriptions run at `temperature=0`, must
   transcribe verbatim, mark unreadable text and undeterminable senders instead
-  of guessing, and name the source part for later inspection. This remains a
-  one-shot description: when exact wording matters, look at the original image
-  rather than trusting the description.
+  of guessing, and name the source part for later inspection.
 - **`markitdown` skill** — bundled workflow (environment check → convert →
   report caveats) with per-format expectations and known limitations.
 
@@ -97,6 +101,10 @@ package.
     # llmModel: gpt-4o
     # llmBaseUrl: https://api.deepseek.com/v1
     # llmApiKeyEnv: OPENAI_API_KEY
+    # Have the active model describe each exported DOCX image (default off;
+    # images are always exported and linked either way). Toggle it on the
+    # Settings → MarkItDown page.
+    # describeImages: false
     # Allow URL sources in LLM mode (default off: internal content must not
     # leave the host through the LLM API).
     # llmAllowUrls: false
@@ -123,8 +131,14 @@ pnpm run verify   # structural checks (package, patch, skills, lib, locale)
   approval flow does not gate it, so the plugin validates paths (absolute,
   existing, extension allow-list, size cap) before invoking MarkItDown.
 - Scanned PDFs without a text layer convert to little or no text.
-- Complex layouts flatten into linear Markdown; DOCX embedded images return
-  as data URIs and can be large — use `output` for those.
+- Complex layouts flatten into linear Markdown. DOCX embedded images are
+  exported as files (`<name>.media/` beside the Markdown) and linked by path;
+  inline conversions export to a temp directory that the OS may clean up, so
+  pass `output`/`outputDir` when the images should persist. With
+  `allowedRoot` set, inline conversions keep the data URIs rather than writing
+  outside the workspace.
+- Image descriptions are one-shot: when exact wording matters, open the
+  exported original (`read_image`) instead of trusting the description.
 - This plugin does not install Python packages by itself; run
   `markitdown_check` and follow its setup guidance.
 

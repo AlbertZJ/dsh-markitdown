@@ -50,6 +50,7 @@ export type MarkitdownSettingsNotice =
   | { kind: 'saved' | 'failed'; provider: ProviderId; field: ProviderField }
   | { kind: 'activated' | 'activateFailed' | 'deactivated'; provider: ProviderId }
   | { kind: 'keySaved' | 'keyCleared' | 'keyFailed'; provider: ProviderId }
+  | { kind: 'describeSaved' | 'describeFailed' }
 
 /** What the settings page renders. */
 export interface MarkitdownSettingsState {
@@ -61,6 +62,8 @@ export interface MarkitdownSettingsState {
   providers: readonly MarkitdownProviderState[]
   /** Whether any provider is active (LLM mode on). */
   active: boolean
+  /** Whether the active model also describes DOCX images (default off). */
+  describeImages: boolean
   /** A write is crossing the wire. */
   busy: boolean
   /** The latest write outcome, cleared by the next write. */

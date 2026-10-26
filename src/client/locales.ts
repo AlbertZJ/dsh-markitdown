@@ -4,6 +4,7 @@
 export type MarkitdownSettingsLocaleKey =
   | 'nav'
   | 'title' | 'description'
+  | 'describeLabel' | 'describeHint' | 'describeSaved' | 'describeFailed'
   | 'llmOffNote'
   | 'providerOpenai' | 'providerDeepseek' | 'providerCustom'
   | 'activeBadge' | 'activate' | 'deactivate'
@@ -19,8 +20,12 @@ export type MarkitdownSettingsLocaleKey =
 export const en: Record<MarkitdownSettingsLocaleKey, string> = {
   nav: 'MarkItDown',
   title: 'MarkItDown LLM providers',
-  description: 'LLM-assisted conversion describes embedded images in Office documents instead of emitting raw data URIs. Each provider keeps its own model and API key; the active provider is the one conversions use. Keys are kept in the dsh credential store, never in the profile configuration.',
-  llmOffNote: 'No provider is active: conversions run without LLM assistance until you activate one that has a model.',
+  description: 'DOCX images are exported as files next to the Markdown, so the session can open the originals (read_image). Optionally the active provider also describes each image. Each provider keeps its own model and API key; the active provider is the one conversions use. Keys are kept in the dsh credential store, never in the profile configuration.',
+  describeLabel: 'Describe images with the active model',
+  describeHint: 'Off by default: images are only exported and linked by path. On: the model writes a description beside each link (one call per image, adds tokens and latency). Requires an active provider with a key.',
+  describeSaved: 'Image description setting saved.',
+  describeFailed: 'The deployment did not accept the setting.',
+  llmOffNote: 'No provider is active: images are exported without descriptions until you activate one that has a model.',
   providerOpenai: 'OpenAI',
   providerDeepseek: 'DeepSeek',
   providerCustom: 'Custom endpoint',
@@ -58,8 +63,12 @@ export const en: Record<MarkitdownSettingsLocaleKey, string> = {
 export const zh: Record<MarkitdownSettingsLocaleKey, string> = {
   nav: 'MarkItDown',
   title: 'MarkItDown LLM 提供商',
-  description: 'LLM 辅助转换会把 Office 文档中的内嵌图片描述成文字，而不是输出原始 data URI。每个提供商各自保存模型和 API 密钥；转换使用当前启用的那一个。密钥存放在 dsh 凭证存储中，不会写进配置文件。',
-  llmOffNote: '当前没有启用的提供商：在启用一个已填模型的提供商之前，转换不会使用 LLM。',
+  description: 'DOCX 内嵌图片会默认导出成文件放在 Markdown 旁边，会话可以直接打开原图（read_image）。也可以让当前启用的提供商额外描述每张图片。每个提供商各自保存模型和 API 密钥；转换使用当前启用的那一个。密钥存放在 dsh 凭证存储中，不会写进配置文件。',
+  describeLabel: '用当前模型描述图片',
+  describeHint: '默认关闭：只导出图片并以路径引用。开启后：模型会在每张图旁写一段描述（每张图一次调用，增加 token 与延迟）。需要先启用一个已保存密钥的提供商。',
+  describeSaved: '图片描述设置已保存。',
+  describeFailed: '部署未接受该设置。',
+  llmOffNote: '当前没有启用的提供商：图片仍会导出，但不会生成描述，直到你启用一个已填模型的提供商。',
   providerOpenai: 'OpenAI',
   providerDeepseek: 'DeepSeek',
   providerCustom: '自定义端点',

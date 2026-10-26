@@ -25,18 +25,22 @@
     除非 `allowPrivateUrls`）；
   - `output` 把单来源结果写文件，`outputDir` 按来源写 `<名称>.md`；
     默认内联返回 Markdown。
-- **LLM 辅助转换**：Office 文档内嵌图片由 OpenAI 兼容的 LLM 生成描述文字，
-  而不是输出 data URI。在独立的 **设置 → MarkItDown** 页面配置（不在插件清单
-  里）：每个提供商一张卡片——OpenAI、DeepSeek 或自定义端点——各自保存模型和
-  API 密钥，当前启用的卡片决定转换用哪一组。密钥存入 dsh 凭证存储而非配置文件；
-  各提供商的 `apiKeyEnv` 引用与环境变量仍作为兜底。内置
-  `python/llm_convert.py` helper，需要 `openai` 包。
+- **DOCX 图片导出**：Word 内嵌图片会导出成文件，data URI 占位符替换为文件
+  链接，会话可以直接打开原图（`read_image`）并追问，而不是依赖一次性描述。
+  指定 `output` 时图片写入同级的 `<名称>.media/` 并用相对路径引用；指定
+  `outputDir` 时每个 `<名称>.media/` 与对应 Markdown 并排；内联转换则导出到
+  临时目录并用绝对路径引用。全程不涉及模型或 API 密钥。
+- **可选图片描述**：在独立的 **设置 → MarkItDown** 页面（不在插件清单里）
+  有一个开关，开启后由模型为每张导出图片额外写描述；同一页面每个提供商一张
+  卡片——OpenAI、DeepSeek 或自定义端点——各自保存模型和 API 密钥，当前启用
+  的卡片决定转换用哪一组。密钥存入 dsh 凭证存储而非配置文件；各提供商的
+  `apiKeyEnv` 引用与环境变量仍作为兜底。内置 `python/llm_convert.py` helper，
+  只有开启描述时才需要 `openai` 包。
   DOCX 单独处理：markitdown 0.1.x 的 Word 转换器从不把内嵌图片交给 LLM，
-  所以 helper 会按文档顺序解包 `word/media`、每张图描述一次，并原位替换
-  data URI 占位符——一次 `markitdown_convert` 就能拿到截图里的文字。描述
-  使用 `temperature=0`，要求逐字转录、看不清标 `[unreadable]`、发送者不确定
-  时明说而不猜，并标注原图成员名以便核对。注意这仍是单次盲描述：措辞精确
-  要求高时，应改看原图（会话自带图片读取）而不是依赖描述。
+  所以 helper 会按文档顺序解包 `word/media`、导出（以及按需描述）每张图，
+  并原位替换 data URI 占位符。描述使用 `temperature=0`，要求逐字转录、
+  看不清标 `[unreadable]`、发送者不确定时明说而不猜，并标注原图成员名以便
+  核对。
 - **`markitdown` 技能**：打包工作流（环境检查 → 转换 → 汇报注意事项），
   含各格式预期与已知限制。
 
@@ -89,6 +93,9 @@ github:AlbertZJ/dsh-markitdown
     # llmModel: gpt-4o
     # llmBaseUrl: https://api.deepseek.com/v1
     # llmApiKeyEnv: OPENAI_API_KEY
+    # 是否让当前模型描述每张导出的 DOCX 图片（默认关闭；无论开关如何，
+    # 图片都会导出并链接）。可在「设置 → MarkItDown」页面切换。
+    # describeImages: false
 ```
 
 ## 验证
@@ -106,8 +113,12 @@ pnpm run verify   # 结构校验（包、patch、技能、lib、locale）
 - 转换以 dsh 宿主子进程方式运行，不经过 Bash 审批流；插件在调用
   MarkItDown 前会校验路径（绝对路径、存在、扩展名白名单、大小上限）。
 - 无文本层的扫描版 PDF 转换结果会很少或为空。
-- 复杂排版会被压平成线性 Markdown；DOCX 内嵌图片以 data URI 返回且
-  可能很大——这类请用 `output` 写文件。
+- 复杂排版会被压平成线性 Markdown。DOCX 内嵌图片会导出为文件（Markdown
+  旁的 `<名称>.media/`）并以路径引用；内联转换导出到临时目录，可能被系统
+  清理——需要长期保留时请用 `output`/`outputDir`。设置了 `allowedRoot`
+  时，内联转换不会在工作区外写文件，而是保留 data URI。
+- 图片描述是一次性结果：措辞精确要求高时，应打开导出的原图
+  （`read_image`）而不是依赖描述。
 - 本插件不会自行安装 Python 包；跑 `markitdown_check` 按其指引安装。
 
 ## 许可

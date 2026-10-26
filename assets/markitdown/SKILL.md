@@ -29,7 +29,8 @@ own the process, timeout and error handling.
      and sources under ~100 KiB.
    - `output` (single source) or `outputDir` (writes `<name>.md` per source)
      — right for large documents, batch jobs and when the user asks for
-     converted files on disk.
+     converted files on disk. DOCX conversions also write a sibling
+     `<name>.media/` directory with the embedded images.
 4. **Report** what was converted, where the Markdown went, and any caveats
    below that apply to the source format.
 
@@ -58,35 +59,38 @@ temporary file — MarkItDown never re-resolves the host. Internal addresses
 the URL itself is passed to MarkItDown (its converter requires it), still
 after the same pinned connection check.
 
-## LLM-assisted conversion
+## DOCX images: export by default, descriptions optional
 
-When the plugin config sets `llmModel`, conversions run through the bundled
-helper with an OpenAI-compatible client: embedded images in Office documents
-are described by the LLM instead of emitted as raw data URIs. Requirements:
+Markitdown 0.1.x never routes Word images through its LLM client, so a DOCX
+would otherwise carry `![](data:image/...;base64...)` blobs. The bundled
+helper instead exports every `word/media` image in document order next to the
+Markdown (`<name>.media/`) and replaces each placeholder with a file link —
+no model, no API key. Inline conversions use a temp directory (absolute
+links); pass `output`/`outputDir` when the images should persist.
+
+When the user wants the text inside the screenshots without opening each
+image, the model can describe them: enable **Describe images with the active
+model** on Settings → MarkItDown (`describeImages`; off by default). Each link
+then carries a `> **图 N**（word/media/...）` description block. This costs one
+model call per distinct image and needs:
 
 - the `openai` package in the same Python environment
   (`<command> -m pip install openai`),
-- the API key stored in the dsh credential store — Settings → MarkItDown
-  (provider card: endpoint, model, key) — or exported in the `llmApiKeyEnv`
-  environment variable as a fallback,
-- awareness that image descriptions cost LLM tokens and add latency.
+- an active provider with its API key stored in the dsh credential store —
+  Settings → MarkItDown (endpoint, model, key) — or exported in the
+  `llmApiKeyEnv` environment variable as a fallback.
 
-Any OpenAI-compatible provider works: pick the DeepSeek preset or set a
-custom endpoint plus its model name.
+Descriptions run at temperature 0 and must transcribe text verbatim, mark
+unreadable text and undeterminable senders instead of guessing, and name the
+source part so the original can be inspected. Large images (> 8 MiB) are not
+exported or described (reported inline), and a failed description is reported
+inline instead of aborting the document. Descriptions are still one-shot:
+when exact wording matters, open the exported image (the session's own image
+reading) instead of trusting the text.
 
-DOCX needs special handling: markitdown 0.1.x never routes Word images
-through its LLM client, so the helper unpacks `word/media` in document
-order, describes each image once, and replaces the data-URI placeholders
-in place (`> **图 N**` blocks). Descriptions run at temperature 0 and must
-transcribe text verbatim, mark unreadable text and undeterminable senders
-instead of guessing, and name the source part (`word/media/...`) so the
-original can be inspected. Large images (> 8 MiB) are skipped, and a failed
-description is reported inline instead of aborting the document. This is
-still one-shot description: when exact wording matters, ask for the original
-image (or use the session's own image reading) instead of trusting it.
-
-`markitdown_check` reports whether the helper is ready. Without `llmModel`,
-conversion stays fully offline and images appear as (truncated) data URIs.
+`markitdown_check` reports whether descriptions are on and whether the helper
+can reach a key. Without them, conversion stays fully offline and images are
+only exported.
 
 ## Supported local inputs
 
@@ -119,7 +123,8 @@ unless the user provides an `extensionHint` that MarkItDown understands.
 - YouTube transcription depends on the `[all]` extra and current page
   structure; failures surface the MarkItDown error — report it, do not retry
   in a loop.
-- DOCX embedded images come back as data URIs without LLM mode (and can be
-  large; prefer `output`/`outputDir`). In LLM mode the helper describes them
-  in place; expect one model call per distinct image and scale `timeoutMs`
-  for image-heavy documents.
+- DOCX embedded images are exported as files beside the Markdown. Inline
+  conversions use a temp directory that may be cleaned up; prefer
+  `output`/`outputDir` when the images matter. With descriptions enabled,
+  expect one model call per distinct image and scale `timeoutMs` for
+  image-heavy documents.

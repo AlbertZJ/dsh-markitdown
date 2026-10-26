@@ -27,6 +27,7 @@ interface MarkitdownEntryConfig {
   llmModel?: unknown
   llmBaseUrl?: unknown
   llmApiKeyEnv?: unknown
+  describeImages?: unknown
 }
 
 /** One provider profile as stored under `llmProviders`. */
@@ -48,6 +49,8 @@ export interface MarkitdownSettingsFace {
   activateProvider: (provider: ProviderId) => Promise<void>
   /** Turn LLM mode off entirely. */
   deactivateProvider: () => Promise<void>
+  /** Enable or disable model-written descriptions of DOCX images. */
+  setDescribeImages: (enabled: boolean) => Promise<void>
   /** Store a provider's API key under its reference. */
   saveKey: (provider: ProviderId, value: string) => Promise<boolean>
   /** Remove a provider's stored API key. */
@@ -68,6 +71,7 @@ export class MarkitdownSettingsController {
       keyConfigured: undefined,
     })),
     active: false,
+    describeImages: false,
     busy: false,
     notice: undefined,
   })
@@ -95,6 +99,7 @@ export class MarkitdownSettingsController {
       saveProviderField: (provider, field, value) => this.saveProviderField(provider, field, value),
       activateProvider: provider => this.activateProvider(provider),
       deactivateProvider: () => this.deactivateProvider(),
+      setDescribeImages: enabled => this.setDescribeImages(enabled),
       saveKey: (provider, value) => this.saveKey(provider, value),
       clearKey: provider => this.clearKey(provider),
     }
@@ -149,6 +154,29 @@ export class MarkitdownSettingsController {
       this.store.update(draft => {
         draft.busy = false
         draft.notice = { kind: accepted ? 'deactivated' : 'activateFailed', provider: active.id }
+      })
+    } finally {
+      if (this.store.getSnapshot().busy) this.store.update(draft => { draft.busy = false })
+    }
+  }
+
+  /**
+   * Enable or disable descriptions. Off is the schema default, so disabling
+   * removes the field instead of persisting `false`.
+   */
+  private async setDescribeImages(enabled: boolean): Promise<void> {
+    const snapshot = this.store.getSnapshot()
+    if (!snapshot.writable || snapshot.busy) return
+    this.store.update(draft => { draft.busy = true; draft.notice = undefined })
+    try {
+      const accepted = await this.form.mutate([
+        enabled
+          ? { op: 'set', path: ['describeImages'], value: true }
+          : { op: 'unset', path: ['describeImages'] },
+      ])
+      this.store.update(draft => {
+        draft.busy = false
+        draft.notice = { kind: accepted ? 'describeSaved' : 'describeFailed' }
       })
     } finally {
       if (this.store.getSnapshot().busy) this.store.update(draft => { draft.busy = false })
@@ -262,6 +290,7 @@ export class MarkitdownSettingsController {
       draft.writable = snapshot.writable
       draft.providers = providers
       draft.active = activeId !== undefined
+      draft.describeImages = value?.describeImages === true
     })
     void this.readKeys()
   }

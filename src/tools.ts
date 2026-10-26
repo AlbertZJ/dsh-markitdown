@@ -7,11 +7,13 @@
  *   with setup guidance when something is missing;
  * - `markitdown_convert` converts one source (local file, http(s) URL, or
  *   stdin bytes) or a batch of sources to Markdown, inline or via output
- *   files. When the plugin config sets llmModel, conversions run with LLM
- *   image descriptions through the bundled helper.
+ *   files. DOCX sources export their embedded images as files; when
+ *   describeImages is on, the active model also writes a description for
+ *   each one through the bundled helper.
  */
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join } from 'node:path'
+import { tmpdir } from 'node:os'
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import {
@@ -20,11 +22,13 @@ import {
   convertBatch,
   convertOne,
   convertWithLlm,
+  isUrl,
   MarkitdownError,
   SUPPORTED_FORMATS,
   type Connection,
   type ConvertHints,
   type ConvertSpec,
+  type MediaSpec,
 } from './runner.js'
 
 /** Maximum sources in one batch call. */
@@ -70,13 +74,37 @@ async function resolveOutputPath(connection: Connection, args: ConvertArgs, sour
   return undefined
 }
 
+/**
+ * Where a DOCX conversion should export its embedded images. With an output
+ * file the images go to a sibling `<name>.media` directory and the Markdown
+ * links them relatively, so the pair moves together. Inline conversions use a
+ * fresh temp directory referenced absolutely (the session can still open
+ * those files); under `allowedRoot` an inline conversion keeps the data URIs
+ * rather than writing outside the workspace.
+ */
+async function resolveMedia(connection: Connection, args: ConvertArgs, source: string, batch: boolean): Promise<MediaSpec | undefined> {
+  if (source === '(stdin)' || isUrl(source)) return undefined
+  const hinted = (args.extensionHint ?? '').trim().replace(/^\.+/u, '').toLowerCase()
+  const extension = hinted !== '' ? hinted : source.split('.').pop()?.toLowerCase() ?? ''
+  if (extension !== 'docx') return undefined
+  const outputPath = await resolveOutputPath(connection, args, source, batch)
+  const sourceLeaf = basename(source).replace(/\.[^.]+$/u, '') || 'output'
+  if (outputPath !== undefined) {
+    const leaf = basename(outputPath).replace(/\.[^.]+$/u, '') || sourceLeaf
+    return { dir: join(dirname(outputPath), `${leaf}.media`), linkPrefix: `${leaf}.media` }
+  }
+  if (connection.allowedRoot !== undefined) return undefined
+  const dir = await mkdtemp(join(tmpdir(), 'dsh-markitdown-media-'))
+  return { dir, linkPrefix: dir.replace(/\\/gu, '/') }
+}
+
 /** Register the two conversion tools. */
 export function registerTools(ctx: Context, connection: Connection): void {
   const formatList = SUPPORTED_FORMATS.map(format => `.${format.extension} (${format.extracts})`).join('; ')
   // The active provider can change under Settings → MarkItDown while this
   // tool stays registered, so the description names the behavior rather than
   // the current model; markitdown_check reports the live selection.
-  const llmNote = 'When an LLM provider is active in Settings → MarkItDown, embedded images are described by that model instead of emitted as data URIs.'
+  const llmNote = 'Embedded DOCX images are exported as files next to the Markdown and linked by path (the session can open the originals with read_image); when image descriptions are enabled in Settings → MarkItDown, the active model also writes a description beside each link.'
 
   ctx.tools.register(defineTool({
     name: 'markitdown_check',
@@ -170,10 +198,15 @@ export function registerTools(ctx: Context, connection: Connection): void {
         throw new MarkitdownError('dsh-markitdown: output applies to a single source; use outputDir for batches')
       }
       const hints = hintsOf(args)
+      const batch = sources.length > 1
       const specs: ConvertSpec[] = useStdin
         ? [{ stdinBase64: args.stdinBase64 as string, hints }]
-        : sources.map(source => ({ source, hints }))
-      const convert = connection.llmModel !== undefined ? convertWithLlm : convertOne
+        : await Promise.all(sources.map(async source => ({
+          source,
+          hints,
+          media: await resolveMedia(connection, args, source, batch),
+        })))
+      const convert = connection.llmModel !== undefined && connection.describeImages ? convertWithLlm : convertOne
 
       if (sources.length <= 1) {
         const spec = specs[0] as ConvertSpec

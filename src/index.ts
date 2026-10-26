@@ -29,6 +29,9 @@
  *                 the openai package plus an API key.
  * - llmApiKeyEnv: legacy key reference; environment variable holding the LLM
  *                 API key; default OPENAI_API_KEY.
+ * - describeImages: have the active model describe DOCX images (default
+ *                 false). Off still exports the images as files beside the
+ *                 Markdown; on adds a description next to each link.
  * - llmAllowUrls: allow URL sources in LLM mode (default off — internal
  *                 content must not leave the host through the LLM API).
  * - allowPlugins: permit third-party MarkItDown converter plugins (CLI -p);
@@ -81,6 +84,12 @@ export interface Config {
   llmBaseUrl?: string
   /** Legacy credential reference (environment variable name) holding the LLM API key; default OPENAI_API_KEY. */
   llmApiKeyEnv?: string
+  /**
+   * Whether the active model also describes DOCX images (default false).
+   * Off still exports the images as files next to the Markdown; on adds a
+   * description beside each link, costing one model call per image.
+   */
+  describeImages?: boolean
   /** Allow URL sources in LLM mode; default false (internal content must not leave the host). */
   llmAllowUrls?: boolean
   /** Permit third-party MarkItDown converter plugins (CLI -p); default false. */
@@ -113,6 +122,7 @@ export const Config = z.object({
   llmModel: z.string().min(1).volatile(),
   llmBaseUrl: z.string().min(1).volatile(),
   llmApiKeyEnv: z.string().min(1).volatile(),
+  describeImages: z.boolean().volatile(),
   llmAllowUrls: z.boolean(),
   allowPlugins: z.boolean(),
   allowPrivateUrls: z.boolean(),
@@ -151,6 +161,7 @@ export function resolveConfig(config: Config): {
   llmModel?: string
   llmBaseUrl?: string
   llmApiKeyEnv: string
+  describeImages: boolean
   llmAllowUrls: boolean
   allowPlugins: boolean
   allowPrivateUrls: boolean
@@ -180,6 +191,7 @@ export function resolveConfig(config: Config): {
     llmModel,
     llmBaseUrl,
     llmApiKeyEnv,
+    describeImages: readField(config.describeImages) ?? false,
     llmAllowUrls: config.llmAllowUrls ?? false,
     allowPlugins: config.allowPlugins ?? false,
     allowPrivateUrls: config.allowPrivateUrls ?? false,
@@ -204,6 +216,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     get llmModel() { return resolveConfig(config).llmModel },
     get llmBaseUrl() { return resolveConfig(config).llmBaseUrl },
     get llmApiKeyEnv() { return resolveConfig(config).llmApiKeyEnv },
+    get describeImages() { return resolveConfig(config).describeImages },
     resolveApiKey: async () => (await ctx.credentials.resolve(resolveConfig(config).llmApiKeyEnv))?.value,
     llmAllowUrls: base.llmAllowUrls,
     allowPlugins: base.allowPlugins,

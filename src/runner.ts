@@ -6,10 +6,10 @@
  * failures (interpreter missing, package missing) map to actionable
  * guidance instead of raw spawn errors.
  *
- * LLM-assisted conversion (image descriptions instead of raw data URIs) is
- * API-only in MarkItDown, so it runs through the bundled helper script
- * `python/llm_convert.py`, which reads the API key from a named environment
- * variable — the key never enters the plugin configuration.
+ * DOCX image handling (exporting `word/media` files, optionally describing
+ * them) runs through the bundled helper script `python/llm_convert.py`.
+ * Descriptions are API-only in MarkItDown; the helper reads the key from a
+ * fixed environment variable — the key never enters the plugin configuration.
  */
 import { spawn } from 'node:child_process'
 import { lookup } from 'node:dns'
@@ -47,6 +47,11 @@ export interface Connection {
   readonly llmBaseUrl?: string
   /** Environment variable holding the LLM API key; default OPENAI_API_KEY. */
   readonly llmApiKeyEnv: string
+  /**
+   * Whether the active model also describes DOCX images. Off (the default)
+   * keeps conversions model-free: images are still exported and linked.
+   */
+  readonly describeImages: boolean
   /**
    * Resolve the LLM API key at call time (never cached): the dsh credential
    * store first, then ambient fallbacks such as the process environment. The
@@ -104,7 +109,7 @@ export interface SupportedFormat {
  */
 export const SUPPORTED_FORMATS: readonly SupportedFormat[] = [
   { extension: 'pdf', extracts: 'text content' },
-  { extension: 'docx', extracts: 'paragraphs, tables, embedded images (as data URIs or LLM descriptions)' },
+  { extension: 'docx', extracts: 'paragraphs, tables, embedded images (exported as files, optionally described)' },
   { extension: 'doc', extracts: 'text content (legacy Word)' },
   { extension: 'pptx', extracts: 'slides with slide numbers' },
   { extension: 'ppt', extracts: 'slides (legacy PowerPoint)' },
@@ -176,6 +181,14 @@ export function sanitizeHintedExtension(hint: string): string {
   return normalized
 }
 
+/** Where a DOCX conversion exports its embedded images. */
+export interface MediaSpec {
+  /** Absolute directory that receives the image files. */
+  readonly dir: string
+  /** Prefix used in the Markdown image links (relative name or absolute path). */
+  readonly linkPrefix: string
+}
+
 /** One conversion request: a local path, an http(s) URL, or stdin bytes. */
 export interface ConvertSpec {
   /** Absolute local path or http(s) URL (e.g. a YouTube link). */
@@ -184,6 +197,8 @@ export interface ConvertSpec {
   readonly stdinBase64?: string
   /** Optional CLI hints and feature flags. */
   readonly hints?: ConvertHints
+  /** Optional image export target for DOCX sources. */
+  readonly media?: MediaSpec
 }
 
 /** Append the CLI flag form of every provided hint. */
@@ -493,6 +508,31 @@ export function llmHelperPath(): string {
   return fileURLToPath(new URL('../python/llm_convert.py', import.meta.url))
 }
 
+/**
+ * Build the helper argv for one local source. Descriptions (`--describe`)
+ * need a model; image export (`--media-dir`) needs nothing, so a DOCX can be
+ * converted and its images exported without any model or API key.
+ */
+function helperArgs(connection: Connection, spec: ConvertSpec, source: string, describe: boolean): string[] {
+  const args = [llmHelperPath(), source]
+  if ((spec.hints?.extensionHint ?? '') !== '') args.push('--extension', sanitizeHintedExtension(spec.hints?.extensionHint as string))
+  if (describe) {
+    args.push('--describe', '--model', connection.llmModel as string, '--api-key-env', connection.llmApiKeyEnv)
+    if (connection.llmBaseUrl !== undefined && connection.llmBaseUrl !== '') args.push('--base-url', connection.llmBaseUrl)
+  }
+  if (spec.media !== undefined) args.push('--media-dir', spec.media.dir, '--media-link-prefix', spec.media.linkPrefix)
+  return args
+}
+
+/** True when this local source is a DOCX (by extension or extension hint). */
+function isDocxSource(spec: ConvertSpec): boolean {
+  const source = spec.source
+  if (source === undefined || isUrl(source)) return false
+  const hinted = (spec.hints?.extensionHint ?? '').trim().replace(/^\.+/u, '').toLowerCase()
+  const extension = hinted !== '' ? hinted : source.split('.').pop()?.toLowerCase() ?? ''
+  return extension === 'docx'
+}
+
 /** Convert one source to Markdown through the MarkItDown CLI (`python -m markitdown`). */
 export async function convertOne(connection: Connection, spec: ConvertSpec): Promise<string> {
   const hints = spec.hints
@@ -539,6 +579,13 @@ export async function convertOne(connection: Connection, spec: ConvertSpec): Pro
   }
   if (size > connection.maxInputBytes) {
     throw new MarkitdownError(`dsh-markitdown: "${source}" is ${size} bytes, above the ${connection.maxInputBytes} byte limit`)
+  }
+  // DOCX with a media target: the helper exports word/media images and
+  // rewrites the placeholders to file links. No model or key is involved
+  // unless descriptions were requested (that path is convertWithLlm).
+  if (spec.media !== undefined && isDocxSource(spec)) {
+    const { stdout } = await run(connection, helperArgs(connection, spec, source, false))
+    return stdout
   }
   const args = ['-m', 'markitdown']
   appendHintFlags(args, hints, connection)
@@ -590,9 +637,7 @@ export async function convertWithLlm(connection: Connection, spec: ConvertSpec):
         `dsh-markitdown: no API key behind "${connection.llmApiKeyEnv}" (credential store or environment). Set it in Settings → MarkItDown, or export the environment variable.`,
       )
     }
-    const args = [llmHelperPath(), connection.llmModel, connection.llmApiKeyEnv, effectiveSource]
-    if (connection.llmBaseUrl !== undefined && connection.llmBaseUrl !== '') args.push('--base-url', connection.llmBaseUrl)
-    if ((spec.hints?.extensionHint ?? '') !== '') args.push('--extension', sanitizeHintedExtension(spec.hints?.extensionHint as string))
+    const args = helperArgs(connection, spec, effectiveSource, true)
     // The helper reads the key from the environment; the plugin resolved it
     // from the dsh credential store, so hand it to this child only (never
     // argv, never the plugin configuration). The variable name is fixed:
@@ -628,7 +673,7 @@ export async function convertBatch(connection: Connection, specs: readonly Conve
   for (const spec of specs) {
     const source = spec.stdinBase64 !== undefined ? '(stdin)' : spec.source ?? '(unknown)'
     try {
-      const markdown = connection.llmModel !== undefined
+      const markdown = connection.llmModel !== undefined && connection.describeImages
         ? await convertWithLlm(connection, spec)
         : await convertOne(connection, spec)
       results.push({ source, markdown })
@@ -645,15 +690,17 @@ export async function checkEnvironment(connection: Connection): Promise<{ comman
     const probe = await run(connection, ['-c', 'import importlib.metadata as m; print(m.version("markitdown"))'])
     const version = probe.stdout.trim()
     let detail = `markitdown ${version} is available under "${connection.command}".`
-    if (connection.llmModel !== undefined) {
+    if (connection.llmModel !== undefined && !connection.describeImages) {
+      detail += ` Image descriptions are off: DOCX images are exported as files next to the Markdown (no model calls); enable them in Settings → MarkItDown.`
+    } else if (connection.llmModel !== undefined) {
       const keyReady = ((await connection.resolveApiKey())?.trim() ?? '') !== ''
       try {
         await run(connection, ['-c', 'import openai'])
         detail += keyReady
-          ? ` LLM-assisted conversion is configured (model ${connection.llmModel}, API key resolved from "${connection.llmApiKeyEnv}").`
-          : ` LLM-assisted conversion is configured (model ${connection.llmModel}) but no API key is set behind "${connection.llmApiKeyEnv}" — add one in Settings → MarkItDown or export the environment variable.`
+          ? ` Image descriptions are on (model ${connection.llmModel}, API key resolved from "${connection.llmApiKeyEnv}").`
+          : ` Image descriptions are on (model ${connection.llmModel}) but no API key is set behind "${connection.llmApiKeyEnv}" — add one in Settings → MarkItDown or export the environment variable.`
       } catch {
-        detail += ` LLM-assisted conversion is configured (model ${connection.llmModel}) but the openai package is missing — run: ${connection.command} -m pip install openai`
+        detail += ` Image descriptions are on (model ${connection.llmModel}) but the openai package is missing — run: ${connection.command} -m pip install openai`
       }
     }
     return { command: connection.command, ready: true, version, detail }
