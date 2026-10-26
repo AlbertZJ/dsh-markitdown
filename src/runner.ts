@@ -8,7 +8,7 @@
  */
 import { spawn } from 'node:child_process'
 import { realpath, stat } from 'node:fs/promises'
-import { isAbsolute, join, sep } from 'node:path'
+import { isAbsolute, join, normalize, sep } from 'node:path'
 
 /** Resolved runtime settings. */
 export interface Connection {
@@ -160,8 +160,10 @@ export async function checkEnvironment(connection: Connection): Promise<{ comman
 }
 
 /**
- * Resolve `target` with symlinks followed as far as the path exists
- * (non-existent tails are kept verbatim after the nearest existing ancestor).
+ * Resolve `target` with symlinks followed as far as the path exists; the
+ * non-existent tail is kept verbatim under the nearest existing ancestor and
+ * lexically normalized, so `..` segments collapse the way the OS will resolve
+ * them once ancestors are created.
  */
 async function realpathBestEffort(target: string): Promise<string> {
   const parts = target.split(sep).filter(part => part.length > 0)
@@ -170,18 +172,20 @@ async function realpathBestEffort(target: string): Promise<string> {
     const head = prefix + parts.slice(0, depth).join(sep)
     try {
       const resolved = await realpath(head)
-      return depth === parts.length ? resolved : join(resolved, parts.slice(depth).join(sep))
+      return depth === parts.length ? resolved : normalize(join(resolved, parts.slice(depth).join(sep)))
     } catch {
       // ancestor missing; keep walking up
     }
   }
-  return target
+  return normalize(target)
 }
 
-/** Normalize a resolved path for containment comparison (Windows separators and case). */
+/** Normalize a resolved path for containment comparison. Backslashes are
+ * translated to separators only on Windows, where they are separators; on
+ * POSIX they are ordinary filename bytes and must stay untouched. */
 function normalizeForCompare(path: string): string {
-  const normalized = path.replace(/\\/gu, '/')
-  return process.platform === 'win32' ? normalized.toLowerCase() : normalized
+  if (process.platform === 'win32') return path.replace(/\\/gu, '/').toLowerCase()
+  return path
 }
 
 /**
