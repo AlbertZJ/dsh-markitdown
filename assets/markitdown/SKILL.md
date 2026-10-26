@@ -66,14 +66,19 @@ are described by the LLM instead of emitted as raw data URIs. Requirements:
 
 - the `openai` package in the same Python environment
   (`<command> -m pip install openai`),
-- the API key stored in the dsh credential store — Settings → Plugins →
-  MarkItDown (provider preset, endpoint, model, key) — or exported in the
-  `llmApiKeyEnv` environment variable (default `OPENAI_API_KEY`) as a
-  fallback,
+- the API key stored in the dsh credential store — Settings → MarkItDown
+  (provider card: endpoint, model, key) — or exported in the `llmApiKeyEnv`
+  environment variable as a fallback,
 - awareness that image descriptions cost LLM tokens and add latency.
 
 Any OpenAI-compatible provider works: pick the DeepSeek preset or set a
-custom endpoint (`llmBaseUrl`) plus its model name.
+custom endpoint plus its model name.
+
+DOCX needs special handling: markitdown 0.1.x never routes Word images
+through its LLM client, so the helper unpacks `word/media` in document
+order, describes each image once, and replaces the data-URI placeholders
+in place (`> **图 N**` blocks). Large images (> 8 MiB) are skipped, and a
+failed description is reported inline instead of aborting the document.
 
 `markitdown_check` reports whether the helper is ready. Without `llmModel`,
 conversion stays fully offline and images appear as (truncated) data URIs.
@@ -109,5 +114,7 @@ unless the user provides an `extensionHint` that MarkItDown understands.
 - YouTube transcription depends on the `[all]` extra and current page
   structure; failures surface the MarkItDown error — report it, do not retry
   in a loop.
-- DOCX embedded images come back as data URIs (or LLM descriptions in LLM
-  mode) and can be large; prefer `output`/`outputDir` for those.
+- DOCX embedded images come back as data URIs without LLM mode (and can be
+  large; prefer `output`/`outputDir`). In LLM mode the helper describes them
+  in place; expect one model call per distinct image and scale `timeoutMs`
+  for image-heavy documents.

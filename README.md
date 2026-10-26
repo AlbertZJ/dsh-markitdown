@@ -34,7 +34,11 @@ model-facing tools — no MCP, no bundled binaries. The plugin drives the
   driving conversions. Keys go to the dsh credential store, never the profile
   configuration; the per-provider `apiKeyEnv` reference and the environment
   variable remain as fallbacks. Ships the `python/llm_convert.py` helper and
-  requires the `openai` package.
+  requires the `openai` package. DOCX gets extra handling because markitdown
+  0.1.x never sends Word images to the LLM: the helper unpacks `word/media` in
+  document order, describes each image once, and replaces the data-URI
+  placeholders in place, so one `markitdown_convert` call also returns the text
+  read out of the screenshots.
 - **`markitdown` skill** — bundled workflow (environment check → convert →
   report caveats) with per-format expectations and known limitations.
 

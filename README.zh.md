@@ -31,6 +31,9 @@
   API 密钥，当前启用的卡片决定转换用哪一组。密钥存入 dsh 凭证存储而非配置文件；
   各提供商的 `apiKeyEnv` 引用与环境变量仍作为兜底。内置
   `python/llm_convert.py` helper，需要 `openai` 包。
+  DOCX 单独处理：markitdown 0.1.x 的 Word 转换器从不把内嵌图片交给 LLM，
+  所以 helper 会按文档顺序解包 `word/media`、每张图描述一次，并原位替换
+  data URI 占位符——一次 `markitdown_convert` 就能拿到截图里的文字。
 - **`markitdown` 技能**：打包工作流（环境检查 → 转换 → 汇报注意事项），
   含各格式预期与已知限制。
 
