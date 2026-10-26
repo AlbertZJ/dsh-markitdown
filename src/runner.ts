@@ -556,7 +556,7 @@ export async function convertWithLlm(connection: Connection, spec: ConvertSpec):
     const apiKey = (await connection.resolveApiKey())?.trim()
     if (apiKey === undefined || apiKey === '') {
       throw new MarkitdownError(
-        `dsh-markitdown: no API key behind "${connection.llmApiKeyEnv}" (credential store or environment). Set it in Settings → Plugins → MarkItDown, or export the environment variable.`,
+        `dsh-markitdown: no API key behind "${connection.llmApiKeyEnv}" (credential store or environment). Set it in Settings → MarkItDown, or export the environment variable.`,
       )
     }
     const args = [llmHelperPath(), connection.llmModel, connection.llmApiKeyEnv, effectiveSource]
@@ -614,7 +614,7 @@ export async function checkEnvironment(connection: Connection): Promise<{ comman
         await run(connection, ['-c', 'import openai'])
         detail += keyReady
           ? ` LLM-assisted conversion is configured (model ${connection.llmModel}, API key resolved from "${connection.llmApiKeyEnv}").`
-          : ` LLM-assisted conversion is configured (model ${connection.llmModel}) but no API key is set behind "${connection.llmApiKeyEnv}" — add one in Settings → Plugins → MarkItDown or export the environment variable.`
+          : ` LLM-assisted conversion is configured (model ${connection.llmModel}) but no API key is set behind "${connection.llmApiKeyEnv}" — add one in Settings → MarkItDown or export the environment variable.`
       } catch {
         detail += ` LLM-assisted conversion is configured (model ${connection.llmModel}) but the openai package is missing — run: ${connection.command} -m pip install openai`
       }

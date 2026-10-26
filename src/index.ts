@@ -18,11 +18,17 @@
  *                 killed past it; default 8388608 (8 MiB).
  * - allowedRoot:  optional containment root: source and output paths must
  *                 resolve inside it after following symlinks.
- * - llmModel:     enables LLM-assisted conversion (image descriptions via
- *                 the bundled helper); requires the openai package and the
- *                 API key in the llmApiKeyEnv environment variable.
- * - llmApiKeyEnv: environment variable holding the LLM API key; default
- *                 OPENAI_API_KEY.
+ * - llmProvider:  id of the active provider profile in `llmProviders`
+ *                 (openai / deepseek / custom). When set, its profile alone
+ *                 decides endpoint, model and key reference.
+ * - llmProviders: per-provider profiles (`baseUrl`, `model`, `apiKeyEnv`),
+ *                 so every provider keeps its own model and key reference.
+ * - llmModel:     legacy single-provider model name; used only when
+ *                 `llmProvider` is unset. Enables LLM-assisted conversion
+ *                 (image descriptions via the bundled helper) and requires
+ *                 the openai package plus an API key.
+ * - llmApiKeyEnv: legacy key reference; environment variable holding the LLM
+ *                 API key; default OPENAI_API_KEY.
  * - llmAllowUrls: allow URL sources in LLM mode (default off — internal
  *                 content must not leave the host through the LLM API).
  * - allowPlugins: permit third-party MarkItDown converter plugins (CLI -p);
@@ -42,6 +48,16 @@ export const name = 'dsh-markitdown'
 /** Registries this plugin needs. */
 export const inject = ['tools', 'skills', 'credentials']
 
+/** One provider profile: endpoint, model and credential reference. */
+export interface LlmProviderProfile {
+  /** OpenAI-compatible endpoint; empty = provider default. */
+  baseUrl?: string
+  /** Model name; empty = LLM mode off for this provider. */
+  model?: string
+  /** Credential reference (environment variable name) holding this provider's key. */
+  apiKeyEnv?: string
+}
+
 /** Plugin configuration; every field is optional in the patch. */
 export interface Config {
   /** Python interpreter with the `markitdown` package, e.g. `python`, `python3`, `py` or an absolute path. */
@@ -54,11 +70,15 @@ export interface Config {
   maxOutputBytes?: number
   /** Optional containment root for source and output paths (symlink-resolved). */
   allowedRoot?: string
-  /** Model name enabling LLM-assisted conversion (image descriptions). */
+  /** Active provider profile id (a key of `llmProviders`); unset falls back to the legacy `llmModel` fields. */
+  llmProvider?: string
+  /** Per-provider profiles, keyed by provider id (openai / deepseek / custom); each keeps its own model and key reference. */
+  llmProviders?: Record<string, LlmProviderProfile>
+  /** Legacy single-provider model name; used only when `llmProvider` is unset. */
   llmModel?: string
-  /** OpenAI-compatible endpoint for LLM mode (e.g. https://api.deepseek.com/v1); empty = provider default. */
+  /** Legacy OpenAI-compatible endpoint; used only when `llmProvider` is unset. */
   llmBaseUrl?: string
-  /** Credential reference (environment variable name) holding the LLM API key; default OPENAI_API_KEY. The dsh credential store takes precedence over the process environment. */
+  /** Legacy credential reference (environment variable name) holding the LLM API key; default OPENAI_API_KEY. */
   llmApiKeyEnv?: string
   /** Allow URL sources in LLM mode; default false (internal content must not leave the host). */
   llmAllowUrls?: boolean
@@ -70,6 +90,13 @@ export interface Config {
   assetRoot?: string
 }
 
+/** One provider profile as stored under `llmProviders`. */
+const LlmProviderProfileSchema = z.object({
+  baseUrl: z.string(),
+  model: z.string(),
+  apiKeyEnv: z.string(),
+})
+
 /** Schemastery configuration schema (fields optional unless marked required).
  *  The LLM fields are volatile: the dsh settings service only projects
  *  namespaces with at least one volatile field, and the settings tab edits
@@ -80,6 +107,8 @@ export const Config = z.object({
   maxInputBytes: z.number().min(1024),
   maxOutputBytes: z.number().min(65536),
   allowedRoot: z.string().min(1),
+  llmProvider: z.string().min(1).volatile(),
+  llmProviders: z.dict(LlmProviderProfileSchema).volatile(),
   llmModel: z.string().min(1).volatile(),
   llmBaseUrl: z.string().min(1).volatile(),
   llmApiKeyEnv: z.string().min(1).volatile(),
@@ -88,6 +117,14 @@ export const Config = z.object({
   allowPrivateUrls: z.boolean(),
   assetRoot: z.string().min(1),
 })
+
+/** Credential reference a provider profile falls back to when it names none. */
+export function defaultKeyEnv(providerId: string | undefined): string {
+  if (providerId === 'openai') return 'OPENAI_API_KEY'
+  if (providerId === 'deepseek') return 'DEEPSEEK_API_KEY'
+  if (providerId === 'custom') return 'MARKITDOWN_API_KEY'
+  return 'OPENAI_API_KEY'
+}
 
 /** Resolve configuration with defaults. */
 export function resolveConfig(config: Config): {
@@ -108,7 +145,14 @@ export function resolveConfig(config: Config): {
   const timeoutMs = config.timeoutMs ?? 60000
   const maxInputBytes = config.maxInputBytes ?? 52428800
   const maxOutputBytes = config.maxOutputBytes ?? 8388608
-  const llmApiKeyEnv = (config.llmApiKeyEnv ?? 'OPENAI_API_KEY').trim()
+  // An explicitly chosen provider profile is the sole source for endpoint,
+  // model and key reference; its empty model means LLM mode is off for that
+  // provider rather than falling back to another provider's model.
+  const activeId = config.llmProvider?.trim() === '' ? undefined : config.llmProvider?.trim()
+  const active = activeId === undefined ? undefined : config.llmProviders?.[activeId]
+  const llmModel = (active === undefined ? config.llmModel : active.model)?.trim() || undefined
+  const llmBaseUrl = (active === undefined ? config.llmBaseUrl : active.baseUrl)?.trim() || undefined
+  const llmApiKeyEnv = ((active === undefined ? config.llmApiKeyEnv : active.apiKeyEnv)?.trim() || defaultKeyEnv(activeId))
   if (command.length === 0) throw new Error('dsh-markitdown: command must not be empty')
   return {
     command,
@@ -116,8 +160,8 @@ export function resolveConfig(config: Config): {
     maxInputBytes,
     maxOutputBytes,
     allowedRoot: config.allowedRoot,
-    llmModel: config.llmModel,
-    llmBaseUrl: config.llmBaseUrl,
+    llmModel,
+    llmBaseUrl,
     llmApiKeyEnv,
     llmAllowUrls: config.llmAllowUrls ?? false,
     allowPlugins: config.allowPlugins ?? false,
@@ -131,8 +175,7 @@ export function apply(ctx: Context, config: Config = {}): void {
   const resolved = resolveConfig(config)
   // Per-call resolution (never cached): the dsh credential store first, then
   // ambient fallbacks such as the process environment. A key set in
-  // Settings → Plugins → MarkItDown reaches the next conversion without a
-  // restart.
+  // Settings → MarkItDown reaches the next conversion without a restart.
   const resolveApiKey = async (): Promise<string | undefined> =>
     (await ctx.credentials.resolve(resolved.llmApiKeyEnv))?.value
   registerTools(ctx, { ...resolved, resolveApiKey })

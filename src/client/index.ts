@@ -1,10 +1,11 @@
 /**
  * dsh-markitdown, browser half: a MarkItDown page of its own on the client's
- * Settings window (next to 运营助手, not inside the plugin inventory). Provider
- * presets, the OpenAI-compatible endpoint, the model name, and the API key
- * (to the dsh credential store — never the profile). The page exists only
- * while the host serves the plugin's entry namespace, so deployments without
- * the plugin show no trace.
+ * Settings window (next to 运营助手, not inside the plugin inventory). One
+ * card per provider (OpenAI, DeepSeek, custom endpoint), each with its own
+ * model and API key (to the dsh credential store — never the profile); the
+ * active card alone drives conversions. The page exists only while the host
+ * serves the plugin's entry namespace, so deployments without the plugin
+ * show no trace.
  */
 
 import type { Context as ClientContext } from '@deepseek-ai/cordis'

@@ -26,14 +26,15 @@ model-facing tools — no MCP, no bundled binaries. The plugin drives the
     private and link-local targets are refused unless `allowPrivateUrls`;
   - `output` writes the single-source result to a file, `outputDir` writes
     `<name>.md` per source; otherwise Markdown comes back inline.
-- **LLM-assisted conversion** (config `llmModel`): embedded images in Office
-  documents are described by an OpenAI-compatible LLM instead of emitted as
-  data URIs. Ships the `python/llm_convert.py` helper; requires the `openai`
-  package and an API key from the dsh credential store — configured in
-  **Settings → Plugins → MarkItDown** (provider preset, endpoint, model, and
-  the key itself), with the `llmApiKeyEnv` environment variable as a
-  fallback. Any OpenAI-compatible provider works (OpenAI, DeepSeek, or a
-  custom `llmBaseUrl`).
+- **LLM-assisted conversion**: embedded images in Office documents are
+  described by an OpenAI-compatible LLM instead of emitted as data URIs.
+  Configured on a dedicated **Settings → MarkItDown** page (not inside the
+  plugin inventory): one card per provider — OpenAI, DeepSeek, or a custom
+  endpoint — each keeping its own model and API key, with the active card
+  driving conversions. Keys go to the dsh credential store, never the profile
+  configuration; the per-provider `apiKeyEnv` reference and the environment
+  variable remain as fallbacks. Ships the `python/llm_convert.py` helper and
+  requires the `openai` package.
 - **`markitdown` skill** — bundled workflow (environment check → convert →
   report caveats) with per-format expectations and known limitations.
 
@@ -76,9 +77,15 @@ package.
     # resolved with symlinks followed and must stay under this root.
     # allowedRoot: D:/work/documents
     # Optional: LLM-assisted conversion (LLM-described embedded images).
-    # Requires `pip install openai`. The key is read from the dsh credential
-    # store (Settings → Plugins → MarkItDown) or the env var below.
-    # Any OpenAI-compatible provider works:
+    # Requires `pip install openai`. Configure providers and keys on the
+    # Settings → MarkItDown page; the fields below are the profile storage
+    # it writes (active provider + one profile per provider).
+    # llmProvider: deepseek
+    # llmProviders:
+    #   openai:   { baseUrl: https://api.openai.com/v1, model: gpt-4o, apiKeyEnv: OPENAI_API_KEY }
+    #   deepseek: { baseUrl: https://api.deepseek.com/v1, model: deepseek-chat, apiKeyEnv: DEEPSEEK_API_KEY }
+    #   custom:   { baseUrl: https://api.example.com/v1, model: my-model, apiKeyEnv: MARKITDOWN_API_KEY }
+    # Legacy single-provider fields, used only when llmProvider is unset:
     # llmModel: gpt-4o
     # llmBaseUrl: https://api.deepseek.com/v1
     # llmApiKeyEnv: OPENAI_API_KEY

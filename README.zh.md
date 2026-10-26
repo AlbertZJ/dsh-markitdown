@@ -25,13 +25,12 @@
     除非 `allowPrivateUrls`）；
   - `output` 把单来源结果写文件，`outputDir` 按来源写 `<名称>.md`；
     默认内联返回 Markdown。
-- **LLM 辅助转换**（配置 `llmModel`）：Office 文档内嵌图片由
-  OpenAI 兼容的 LLM 生成描述文字，而不是输出 data URI。API 密钥与模型在
-  **设置 → 插件 → MarkItDown** 里配置（提供商预设、端点、模型、密钥本身，
-  密钥存入 dsh 凭证存储而非配置文件），也兼容 `llmApiKeyEnv` 环境变量。
-  任何 OpenAI 兼容提供商都可用（OpenAI、DeepSeek 或自定义 `llmBaseUrl`）。
-  内置 `python/llm_convert.py` helper；需要 `openai` 包与
-  `llmApiKeyEnv`（默认 `OPENAI_API_KEY`）环境变量里的 API key。
+- **LLM 辅助转换**：Office 文档内嵌图片由 OpenAI 兼容的 LLM 生成描述文字，
+  而不是输出 data URI。在独立的 **设置 → MarkItDown** 页面配置（不在插件清单
+  里）：每个提供商一张卡片——OpenAI、DeepSeek 或自定义端点——各自保存模型和
+  API 密钥，当前启用的卡片决定转换用哪一组。密钥存入 dsh 凭证存储而非配置文件；
+  各提供商的 `apiKeyEnv` 引用与环境变量仍作为兜底。内置
+  `python/llm_convert.py` helper，需要 `openai` 包。
 - **`markitdown` 技能**：打包工作流（环境检查 → 转换 → 汇报注意事项），
   含各格式预期与已知限制。
 
@@ -72,9 +71,17 @@ github:AlbertZJ/dsh-markitdown
     # 可选：把所有读写限制在一个工作区内。路径会跟随符号链接解析，
     # 必须落在该根目录之下。
     # allowedRoot: D:/work/documents
-    # 可选：LLM 辅助转换（内嵌图片由 LLM 描述）。需要 `pip install openai`
-    # 并在环境变量里导出 key。
+    # 可选：LLM 辅助转换（内嵌图片由 LLM 描述）。需要 `pip install openai`。
+    # 提供商与密钥在「设置 → MarkItDown」页面配置；下面就是它写入的配置：
+    # 当前启用的提供商 + 每个提供商一组 profile。
+    # llmProvider: deepseek
+    # llmProviders:
+    #   openai:   { baseUrl: https://api.openai.com/v1, model: gpt-4o, apiKeyEnv: OPENAI_API_KEY }
+    #   deepseek: { baseUrl: https://api.deepseek.com/v1, model: deepseek-chat, apiKeyEnv: DEEPSEEK_API_KEY }
+    #   custom:   { baseUrl: https://api.example.com/v1, model: my-model, apiKeyEnv: MARKITDOWN_API_KEY }
+    # 旧的单提供商字段，仅在 llmProvider 未设置时生效：
     # llmModel: gpt-4o
+    # llmBaseUrl: https://api.deepseek.com/v1
     # llmApiKeyEnv: OPENAI_API_KEY
 ```
 
