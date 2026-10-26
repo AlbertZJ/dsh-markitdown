@@ -187,7 +187,12 @@ function appendHintFlags(args: string[], hints: ConvertHints | undefined, connec
 }
 
 /** Spawn the interpreter with arguments and collect output under the timeout and output cap. */
-async function run(connection: Connection, args: readonly string[], input?: Uint8Array): Promise<{ stdout: string; stderr: string }> {
+async function run(
+  connection: Connection,
+  args: readonly string[],
+  input?: Uint8Array,
+  extraEnv?: NodeJS.ProcessEnv,
+): Promise<{ stdout: string; stderr: string }> {
   return await new Promise((resolvePromise, rejectPromise) => {
     let child
     try {
@@ -195,8 +200,10 @@ async function run(connection: Connection, args: readonly string[], input?: Uint
         stdio: [input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
         // Python writes to a pipe in the locale code page (cp936 on Chinese
         // Windows) while the plugin decodes UTF-8, which turns every non-ASCII
-        // character into mojibake; force UTF-8 for the child's stdio.
-        env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' },
+        // character into mojibake; force UTF-8 for the child's stdio. Extra
+        // entries carry per-call secrets (the LLM key) so they never appear
+        // in argv or the plugin configuration.
+        env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1', ...extraEnv },
       })
     } catch (error) {
       rejectPromise(new MarkitdownError(`dsh-markitdown: failed to start "${connection.command}": ${(error as Error).message}\n\n${setupGuidance(connection.command)}`))
@@ -577,7 +584,10 @@ export async function convertWithLlm(connection: Connection, spec: ConvertSpec):
     const args = [llmHelperPath(), connection.llmModel, connection.llmApiKeyEnv, effectiveSource]
     if (connection.llmBaseUrl !== undefined && connection.llmBaseUrl !== '') args.push('--base-url', connection.llmBaseUrl)
     if ((spec.hints?.extensionHint ?? '') !== '') args.push('--extension', sanitizeHintedExtension(spec.hints?.extensionHint as string))
-    const { stdout } = await run(connection, args)
+    // The helper reads the key from the environment; the plugin resolved it
+    // from the dsh credential store, so hand it to this child only (never
+    // argv, never the plugin configuration).
+    const { stdout } = await run(connection, args, undefined, { [connection.llmApiKeyEnv]: apiKey })
     return stdout
   } finally {
     if (downloadedDir !== undefined) {
